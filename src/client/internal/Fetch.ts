@@ -2,6 +2,8 @@ import * as Challenge from '../../Challenge.js'
 import * as Constants from '../../Constants.js'
 import { PaymentOutcomeUnknownError } from '../../Errors.js'
 import * as Expires from '../../Expires.js'
+import type * as IdentityClient from '../../identity/Client.js'
+import type * as Identity from '../../identity/Types.js'
 import * as AcceptPayment from '../../internal/AcceptPayment.js'
 import type { MaybePromise } from '../../internal/types.js'
 import type * as Method from '../../Method.js'
@@ -243,6 +245,7 @@ export function from<const methods extends readonly Method.AnyClient[]>(
     acceptPayment,
     acceptPaymentPolicy = 'always',
     fetch = globalThis.fetch,
+    identity,
     maxPaymentRetries = defaultMaxPaymentRetries,
     methods,
     onChallenge,
@@ -254,6 +257,14 @@ export function from<const methods extends readonly Method.AnyClient[]>(
   // Always operate on the true underlying fetch to avoid wrapper-on-wrapper stacking,
   // which can duplicate retries and make restore semantics fragile.
   const baseFetch = unwrapFetch(fetch)
+  const send = async (
+    input: RequestInfo | URL,
+    init: RequestInit | undefined,
+    context?: Identity.Context,
+  ): Promise<Response> =>
+    identity
+      ? (await identity.send(baseFetch, new Request(input, init), context)).response
+      : baseFetch(input, init)
 
   const request = async (
     input: RequestInfo | URL,
@@ -272,7 +283,7 @@ export function from<const methods extends readonly Method.AnyClient[]>(
       hasExplicitAcceptPayment,
       acceptPaymentPolicy,
     )
-    let response = await baseFetch(cloneRequestInput(initialRequest.input), initialRequest.init)
+    let response = await send(cloneRequestInput(initialRequest.input), initialRequest.init)
     const transportRequest = withCapturedBody(initialRequest.init, await capturedBody)
 
     if (!(await transport.isPaymentRequired(response, transportRequest as never))) return response
@@ -325,6 +336,7 @@ export function from<const methods extends readonly Method.AnyClient[]>(
         challenge = selectedChallenge
         mi = selected.method
         if (challenge.expires) Expires.assert(challenge.expires, challenge.id)
+        await identity?.challenge(response, { challenge: selectedChallenge })
 
         const paymentInput = resolvePaymentRetryInput(
           response,
@@ -428,18 +440,22 @@ export function from<const methods extends readonly Method.AnyClient[]>(
             transactionHash: MethodResponse.getTransactionHash(selected.method, credential),
           })
         try {
-          response = await baseFetch(paymentInput, {
-            ...transport.setCredential(
-              {
-                ...fetchInit,
-                headers: initialRequest.headers,
-              },
-              credential,
-              { challenge: selectedChallenge },
-            ),
-            // Runtimes do not strip custom payment headers on cross-origin redirects.
-            redirect: 'manual',
-          })
+          response = await send(
+            paymentInput,
+            {
+              ...transport.setCredential(
+                {
+                  ...fetchInit,
+                  headers: initialRequest.headers,
+                },
+                credential,
+                { challenge: selectedChallenge },
+              ),
+              // Runtimes do not strip custom payment headers on cross-origin redirects.
+              redirect: 'manual',
+            },
+            { challenge: selectedChallenge },
+          )
         } catch (cause) {
           outcomeUnknown = unknownOutcome(cause)
           throw cause
@@ -584,6 +600,8 @@ export declare namespace from {
       | undefined
     /** Custom fetch function to wrap. Defaults to `globalThis.fetch`. */
     fetch?: typeof globalThis.fetch
+    /** Identity provers applied to every in-scope HTTP attempt. */
+    identity?: IdentityClient.Client | undefined
     /** Advanced shared event dispatcher. `challenge.received` handlers run before `onChallenge`; the first non-empty credential returned by a handler skips `onChallenge`. */
     eventDispatcher?: ClientEventDispatcher<methods, any> | undefined
     /** Maximum number of payment challenge retries after the initial response. @default 3 */

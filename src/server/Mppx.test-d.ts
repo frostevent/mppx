@@ -2,7 +2,7 @@ import { Method, z } from 'mppx'
 import { Mppx, tempo, Transport } from 'mppx/server'
 import { assertType, describe, expectTypeOf, test } from 'vp/test'
 
-import type * as Attestation from '../attestation/Types.js'
+import type * as Identity from '../identity/Types.js'
 
 const mockChargeA = Method.from({
   name: 'alpha',
@@ -251,23 +251,19 @@ describe('Mppx type tests', () => {
     })
   })
 
-  test('accepts request attestation for HTTP transport only', () => {
-    const verifier = {} as Attestation.Verifier
-    const mppx = Mppx.create({
-      attestation: { webBotAuth: verifier },
-      methods: [alphaMethod],
-      realm,
-      secretKey,
-    })
-    expectTypeOf(mppx.charge).toBeFunction()
+  test('accepts identity verifiers per route', () => {
+    const verifier = {} as Identity.Verifier<{ keyId: string }>
+    const mppx = Mppx.create({ methods: [alphaMethod], realm, secretKey })
+    type Options = Parameters<(typeof mppx)['charge']>[0]
+    expectTypeOf<readonly Identity.Verifier[] | undefined>().toEqualTypeOf<Options['identity']>()
+    expectTypeOf([verifier]).toMatchTypeOf<NonNullable<Options['identity']>>()
 
     Mppx.create({
-      // @ts-expect-error request attestation applies to HTTP transport only.
-      attestation: { webBotAuth: verifier },
+      // @ts-expect-error identity is configured per route.
+      identity: [verifier],
       methods: [alphaMethod],
       realm,
       secretKey,
-      transport: Transport.mcp(),
     })
   })
 
