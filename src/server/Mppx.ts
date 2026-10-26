@@ -2953,7 +2953,7 @@ function composeHandlers(
       results.push(result)
     }
 
-    const challengeEntries = (() => {
+    const rankedChallengeEntries = (() => {
       const entries: {
         handler: ConfiguredHandler
         challenge: Challenge.Challenge
@@ -2992,6 +2992,18 @@ function composeHandlers(
       }
     })()
 
+    // A composed 402 can carry one identity challenge, which is bound to its own payment
+    // challenge. Offers whose identity challenge cannot be forwarded are not advertised,
+    // so a client never picks an offer it cannot prove.
+    const identityEntry = rankedChallengeEntries.find((entry) =>
+      identityChallengeHeaders.has(entry.result.challenge as Response),
+    )
+    const challengeEntries = rankedChallengeEntries.filter(
+      (entry) =>
+        entry === identityEntry ||
+        !identityChallengeHeaders.has(entry.result.challenge as Response),
+    )
+
     const challengeResponses = results.flatMap((result) =>
       result.status === 402 ? [result.challenge as Response] : [],
     )
@@ -3027,10 +3039,8 @@ function composeHandlers(
       }
     }
 
-    // Identity challenges are bound to one payment challenge, so only the
-    // preferred offer's identity headers are forwarded.
-    const preferredResponse = negotiatedChallengeResponses[0]
-    const identityHeaders = preferredResponse && identityChallengeHeaders.get(preferredResponse)
+    const identityHeaders =
+      identityEntry && identityChallengeHeaders.get(identityEntry.result.challenge as Response)
     if (identityHeaders)
       for (const [name, value] of identityHeaders) mergedHeaders.append(name, value)
 

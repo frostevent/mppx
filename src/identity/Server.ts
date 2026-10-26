@@ -78,11 +78,16 @@ export async function verify(
       rejected.push(outcome)
       continue
     }
-    values.set(verifier, outcome.value)
-    const nested = (verifier as Partial<AnyOfVerifier>)[members]
-    if (nested) {
-      const { index, value } = outcome.value as { index: number; value: unknown }
-      values.set(nested[index]!, value)
+    // Record the matched member at every anyOf level, so results.get(leaf) works when nested.
+    let current: Types.Verifier = verifier
+    let value: unknown = outcome.value
+    for (;;) {
+      values.set(current, value)
+      const nested = (current as Partial<AnyOfVerifier>)[members]
+      if (!nested) break
+      const matched = value as { index: number; value: unknown }
+      current = nested[matched.index]!
+      value = matched.value
     }
   }
   if (rejected.length === 0) return { status: 'valid', values }

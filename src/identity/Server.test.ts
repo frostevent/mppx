@@ -99,3 +99,14 @@ test('runs each verifier once per request and context', async () => {
   await Identity.Server.verify(request(), [verifier])
   expect(verify).toHaveBeenCalledTimes(3)
 })
+
+test('records the matched leaf through nested anyOf', async () => {
+  const leaf = valid('leaf')
+  const inner = Identity.anyOf(missing(), leaf)
+  const outer = Identity.anyOf(missing(), inner)
+  const outcome = await Identity.Server.verify(request(), [outer])
+  if (outcome.status !== 'valid') throw new Error()
+  const results = Identity.Server.results(outcome.values)
+  expect(results.get(leaf)).toBe('leaf')
+  expect(results.get(inner)).toEqual({ index: 1, value: 'leaf' })
+})

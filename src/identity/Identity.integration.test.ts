@@ -357,6 +357,21 @@ test('does not authorize without a credential until payment-stage identity is va
   expect(open.status).toBe(200)
 })
 
+test('composed 402s only advertise offers whose identity challenge they forward', async () => {
+  const mppx = createPayments()
+  const proof = proofVerifier()
+  const result = await mppx.compose(
+    [serverMethod, { ...charge, amount: '1', identity: [proof] }],
+    [serverMethod, { ...charge, amount: '2', identity: [proofVerifier()] }],
+    [serverMethod, { ...charge, amount: '3' }],
+  )(new Request('https://x.test'))
+  if (result.status !== 402) throw new Error()
+  const response = result.challenge as Response
+  const challenges = Challenge.fromResponseList(response)
+  expect(challenges.map((challenge) => challenge.request.amount)).toEqual(['1', '3'])
+  expect(response.headers.get(proofRequestHeader)).toBe(challenges[0]!.id)
+})
+
 test('forwards payment-stage identity headers through nested composers', async () => {
   const proof = proofVerifier()
   const inner = Mppx.create({
