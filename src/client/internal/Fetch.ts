@@ -375,7 +375,8 @@ export function from<const methods extends readonly Method.AnyClient[]>(
                 MethodChallenge.handle(selected.method, {
                   challenge: selectedChallenge,
                   context: credentialContext,
-                  fetch: baseFetch,
+                  // Management requests (e.g. session top-ups) carry the same identity proofs.
+                  fetch: (input, init) => send(input, init, { challenge: selectedChallenge }),
                   input: paymentInput,
                   signal: resolveRequestSignal(input, init),
                 }),

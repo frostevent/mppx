@@ -265,6 +265,15 @@ describe('Mppx type tests', () => {
       realm,
       secretKey,
     })
+
+    const mcp = Mppx.create({
+      methods: [alphaMethod],
+      realm,
+      secretKey,
+      transport: Transport.mcp(),
+    })
+    // @ts-expect-error identity applies to HTTP routes only.
+    mcp.charge({ amount: '1', identity: [verifier] })
   })
 
   test('nested handlers are accessible', () => {

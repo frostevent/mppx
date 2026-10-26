@@ -38,8 +38,11 @@ export function anyOf(
       const headers = mergeHeaders(outcomes)
       const invalid = outcomes.find((outcome) => outcome.status === 'invalid')
       if (invalid) return { status: 'invalid', code: invalid.code, headers, reason: invalid.reason }
+      // Keep the first member's custom status so wrapping a verifier does not change its HTTP behavior.
+      const code = outcomes.find((outcome) => outcome.code !== undefined)?.code
       return {
         status: 'missing',
+        ...(code !== undefined && { code }),
         headers,
         reason: 'None of the accepted identity proofs was presented.',
       }

@@ -219,7 +219,6 @@ export function create<
   const identityClient = identity
     ? IdentityClient.from(identity as readonly Identity.Prover[])
     : undefined
-  const provedFetch = identityClient ? IdentityClient.wrapFetch(rawFetch, identityClient) : rawFetch
   const methods = config.methods.flat() as unknown as FlattenMethods<methods>
   const acceptPayment = AcceptPayment.resolve(methods, config.paymentPreferences)
   const events = Fetch.createEventDispatcher<FlattenMethods<methods>, EventResponseOf<transport>>()
@@ -440,7 +439,9 @@ export function create<
         await MethodChallenge.handle(paymentMethod, {
           challenge: payment.challenge,
           context,
-          fetch: provedFetch,
+          fetch: identityClient
+            ? IdentityClient.wrapFetch(rawFetch, identityClient, { challenge: payment.challenge })
+            : rawFetch,
           input: preparedHttp.replayRequest,
           signal: preparedHttp.replayRequest.signal,
         })

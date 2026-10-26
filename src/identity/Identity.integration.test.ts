@@ -329,6 +329,23 @@ test('does not send identity to origins outside a prover scope', async () => {
   }
 })
 
+test('rejects payment-stage identity on methods with a preflight hook', () => {
+  const preflighted = Method.toServer(method, {
+    preflight: () => undefined,
+    async verify() {
+      throw new Error('unreachable')
+    },
+  })
+  const mppx = Mppx.create({
+    methods: [preflighted],
+    realm: 'localhost',
+    secretKey: 'test-secret-key-test-secret-key-32',
+  })
+  expect(() => mppx.charge({ ...charge, identity: [proofVerifier()] })).toThrow(
+    'Payment-stage identity is not supported on test/charge routes with a preflight hook.',
+  )
+})
+
 test('rejects an empty client identity list', () => {
   expect(() =>
     ClientMppx.create({ identity: [], methods: [clientMethod], polyfill: false }),

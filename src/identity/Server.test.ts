@@ -73,6 +73,13 @@ test('anyOf merges member challenges and surfaces invalid members', async () => 
     '1',
     '2',
   ])
+  const custom: Identity.Verifier = { verify: () => ({ status: 'missing', code: 401 }) }
+  expect(
+    await Identity.Server.verify(request(), [Identity.anyOf(missing(), custom)]),
+  ).toMatchObject({
+    status: 'missing',
+    code: 401,
+  })
   expect(
     await Identity.Server.verify(request(), [Identity.anyOf(missing(), invalid())]),
   ).toMatchObject({ status: 'invalid' })

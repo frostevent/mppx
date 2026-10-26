@@ -419,9 +419,17 @@ type IntentHandlers<
     : MultiMethodFn<Extract<methods[number], { intent: intent }>, transport>
 }
 
+/**
+ * Route identity option. HTTP routes accept identity verifiers, all of which must be valid;
+ * use `Identity.anyOf` to accept one of several protocols. Other transports reject it.
+ */
+type RouteIdentity<transport extends Transport.AnyTransport> = transport extends Transport.Http
+  ? { identity?: readonly Identity.Verifier[] | undefined }
+  : { identity?: never }
+
 /** Handler for an intent with multiple methods - takes the intersection of all methods' options. */
 type MultiMethodFn<methods extends Method.AnyServer, transport extends Transport.AnyTransport> = (
-  options: UnionToIntersection<MultiMethodFnDistribute<methods>>,
+  options: UnionToIntersection<MultiMethodFnDistribute<methods>> & RouteIdentity<transport>,
 ) => (input: Transport.InputOf<transport>) => Promise<MethodFn.Response<transport>>
 
 type MultiMethodFnDistribute<M> =
@@ -1111,6 +1119,12 @@ function createMethodFn(parameters: createMethodFn.Parameters): createMethodFn.R
     const paymentVerifiers = identity.filter(
       (verifier) => IdentityServer.stageOf(verifier) === 'payment',
     )
+    // Preflight hooks (e.g. session bootstrap) issue and settle their own challenges, which
+    // payment-stage verifiers cannot see; reject the combination instead of skipping identity.
+    if (paymentVerifiers.length > 0 && preflight)
+      throw new TypeError(
+        `Payment-stage identity is not supported on ${method.name}/${method.intent} routes with a preflight hook.`,
+      )
     const { description, meta, scope, ...rest } = options
     const staticMeta = Scope.merge({ meta, scope })
     const internal = {
@@ -2589,7 +2603,7 @@ export type MethodFn<
   transport extends Transport.AnyTransport,
   defaults extends Record<string, unknown>,
 > = (
-  options: MethodFn.Options<method, defaults>,
+  options: MethodFn.Options<method, defaults> & RouteIdentity<transport>,
 ) => (input: Transport.InputOf<transport>) => Promise<MethodFn.Response<transport>>
 /** @internal */
 export type AnyMethodFn = (options: any) => (input: any) => Promise<any>
@@ -2610,11 +2624,6 @@ declare namespace MethodFn {
     meta?: Record<string, string> | undefined
     /** Optional route/resource scope bound via reserved challenge metadata. */
     scope?: string | undefined
-    /**
-     * Identity verifiers this route requires, all of which must be valid (HTTP only).
-     * Use `Identity.anyOf` to accept one of several protocols.
-     */
-    identity?: readonly Identity.Verifier[] | undefined
   } & Method.WithDefaults<z.input<method['schema']['request']>, defaults>
 
   export type Response<transport extends Transport.AnyTransport = Transport.Http> =
@@ -2997,9 +3006,8 @@ function composeHandlers(
 
     // Identity challenges are bound to one payment challenge, so only the
     // preferred offer's identity headers are forwarded.
-    const identityHeaders = negotiatedChallengeResponses
-      .map((response) => identityChallengeHeaders.get(response))
-      .find((headers) => headers !== undefined)
+    const preferredResponse = negotiatedChallengeResponses[0]
+    const identityHeaders = preferredResponse && identityChallengeHeaders.get(preferredResponse)
     if (identityHeaders)
       for (const [name, value] of identityHeaders) mergedHeaders.append(name, value)
 
