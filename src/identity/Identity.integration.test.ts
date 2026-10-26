@@ -390,6 +390,20 @@ test('rejects payment-stage identity on methods with a preflight hook', () => {
   )
 })
 
+test('rejects the removed attestation option instead of failing open', () => {
+  expect(() =>
+    Mppx.create({
+      attestation: {},
+      methods: [serverMethod],
+      realm: 'localhost',
+      secretKey: 'test-secret-key-test-secret-key-32',
+    } as never),
+  ).toThrow('per-route')
+  expect(() =>
+    ClientMppx.create({ attestation: {}, methods: [clientMethod], polyfill: false } as never),
+  ).toThrow('identity: [prover]')
+})
+
 test('rejects an empty client identity list', () => {
   expect(() =>
     ClientMppx.create({ identity: [], methods: [clientMethod], polyfill: false }),

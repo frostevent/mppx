@@ -545,6 +545,10 @@ export function create<
     transport = Transport.http({ requiresAuth }) as transport,
   } = config
   const credentialHeader = requiresAuth ? Constants.Headers.paymentAuthorization : undefined
+  if ('attestation' in config)
+    throw new TypeError(
+      'Mppx server `attestation` was replaced by per-route `identity`: pass `identity: [verifier]` to each route.',
+    )
 
   if (!secretKey) {
     throw new Error(

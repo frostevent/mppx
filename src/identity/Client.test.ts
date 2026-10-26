@@ -186,3 +186,32 @@ test('sends integrity-checked requests once without following redirects', async 
   expect(seen[0]!.integrity).toBe('sha256-abc')
   expect(seen[0]!.headers.get('X-Proof')).toBe('p')
 })
+
+test('preserves request policies and refuses cross-origin hops in same-origin mode', async () => {
+  const client = Identity.Client.from([{ scope: '*', prove: (request) => request }])
+  const seen: Request[] = []
+  const fetch = vi.fn(async (request: Request) => {
+    seen.push(request)
+    if (request.url.endsWith('/start'))
+      return new Response(null, { headers: { location: '/next' }, status: 307 })
+    if (request.url.endsWith('/next'))
+      return new Response(null, { headers: { location: 'https://other.example/x' }, status: 307 })
+    return new Response('ok')
+  })
+  await expect(
+    client.send(
+      fetch as never,
+      new Request('https://merchant.example/start', {
+        body: 'secret',
+        credentials: 'omit',
+        method: 'POST',
+        mode: 'same-origin',
+      }),
+    ),
+  ).rejects.toThrow("mode 'same-origin' refused a redirect to https://other.example")
+  expect(seen.map((request) => request.url)).toEqual([
+    'https://merchant.example/start',
+    'https://merchant.example/next',
+  ])
+  expect(seen[1]!.credentials).toBe('omit')
+})

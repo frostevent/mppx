@@ -215,6 +215,8 @@ export function create<
     transport = Transport.http() as transport,
   } = config
 
+  if ('attestation' in config)
+    throw new TypeError('Mppx client `attestation` was replaced by `identity: [prover]`.')
   const rawFetch = Fetch.unwrapFetch(config.fetch ?? globalThis.fetch)
   const identityClient = identity
     ? IdentityClient.from(identity as readonly Identity.Prover[])

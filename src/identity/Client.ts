@@ -165,6 +165,10 @@ async function redirect(request: Request, status: number, to: URL): Promise<Requ
     body = undefined
     for (const header of bodyHeaders) headers.delete(header)
   }
+  if (from.origin !== to.origin && request.mode === 'same-origin')
+    throw new TypeError(
+      `Identity request with mode 'same-origin' refused a redirect to ${to.origin}.`,
+    )
   if (from.origin !== to.origin)
     for (const [name, value] of [...headers]) {
       if (crossOriginHeaders.includes(name) || value.startsWith('Payment ')) headers.delete(name)
@@ -173,7 +177,14 @@ async function redirect(request: Request, status: number, to: URL): Promise<Requ
     body: body ?? null,
     headers,
     method,
+    // Keep the caller's request policies on every hop, as native fetch does.
+    cache: request.cache,
+    credentials: request.credentials,
+    keepalive: request.keepalive,
+    ...(request.mode !== 'navigate' && { mode: request.mode }),
     redirect: 'follow',
+    referrer: request.referrer,
+    referrerPolicy: request.referrerPolicy,
     signal: request.signal,
   })
 }
