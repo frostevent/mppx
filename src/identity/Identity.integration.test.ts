@@ -373,6 +373,35 @@ test('forwards payment-stage identity headers through nested composers', async (
   expect(response.headers.get(proofRequestHeader)).toBe(Challenge.fromResponse(response).id)
 })
 
+test('never reports a rejected identity as a successful payment', async () => {
+  const mppx = createPayments()
+  const proof = proofVerifier()
+  const first = await mppx.charge({ ...charge, identity: [proof] })(new Request('https://x.test'))
+  if (first.status !== 402) throw new Error()
+  const challenge = Challenge.fromResponse(first.challenge as Response)
+  const paid = await mppx.charge({ ...charge, identity: [proof] })(
+    new Request('https://x.test', {
+      headers: {
+        [MppConstants.Headers.authorization]: Credential.serialize({
+          challenge,
+          payload: { token: 'paid' },
+        }),
+      },
+    }),
+  )
+  expect(paid.status).toBe(402)
+  if (paid.status !== 402) throw new Error()
+  expect((paid.challenge as Response).status).toBe(403)
+
+  const keys = await signatureKeys()
+  const unsigned = await mppx.charge({ ...charge, identity: [verifiers(keys).tap] })(
+    new Request('https://x.test'),
+  )
+  expect(unsigned.status).toBe(402)
+  if (unsigned.status !== 402) throw new Error()
+  expect((unsigned.challenge as Response).status).toBe(403)
+})
+
 test('rejects payment-stage identity on methods with a preflight hook', () => {
   const preflighted = Method.toServer(method, {
     preflight: () => undefined,

@@ -1158,12 +1158,11 @@ function createMethodFn(parameters: createMethodFn.Parameters): createMethodFn.R
           throw new TypeError('Route identity requires the HTTP transport.')
         const outcome = await IdentityServer.verify(input, requestVerifiers)
         if (outcome.status !== 'valid') {
-          const response = IdentityServer.toResponse(outcome)
+          // Returned on the non-200 branch so callers never run paid work: like an early
+          // rejection, `challenge` holds the identity response (401/403) to send as is.
           return {
-            status: 200,
-            withReceipt() {
-              return response
-            },
+            challenge: IdentityServer.toResponse(outcome),
+            status: 402,
           } as MethodFn.Response
         }
         for (const [verifier, value] of outcome.values) identityValues.set(verifier, value)
@@ -1645,12 +1644,11 @@ function createMethodFn(parameters: createMethodFn.Parameters): createMethodFn.R
           })
           // The client may already have pushed this payment, so a fresh 402 would invite
           // it to pay again. Reject without a challenge, like a replayed credential.
-          const response = IdentityServer.toResponse(outcome)
+          // Returned on the non-200 branch so callers never run paid work: like an early
+          // rejection, `challenge` holds the identity response (401/403) to send as is.
           return {
-            status: 200,
-            withReceipt() {
-              return response
-            },
+            challenge: IdentityServer.toResponse(outcome),
+            status: 402,
           } as MethodFn.Response
         }
         for (const [verifier, value] of outcome.values) identityValues.set(verifier, value)
