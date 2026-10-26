@@ -432,9 +432,11 @@ export function create<
 
     const paymentMethod = preparedPaymentMethods.get(payment) ?? payment.method
     const createRequestCredential = memoizeCreateCredential(async (context) => {
-      await identityClient?.challenge(preparedHttp.response as Response, {
-        challenge: payment.challenge,
-      })
+      await identityClient?.challenge(
+        preparedHttp.response as Response,
+        { challenge: payment.challenge },
+        preparedHttp.replayRequest.url,
+      )
       if (MethodChallenge.has(paymentMethod))
         await MethodChallenge.handle(paymentMethod, {
           challenge: payment.challenge,

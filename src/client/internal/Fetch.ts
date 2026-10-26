@@ -336,7 +336,11 @@ export function from<const methods extends readonly Method.AnyClient[]>(
         challenge = selectedChallenge
         mi = selected.method
         if (challenge.expires) Expires.assert(challenge.expires, challenge.id)
-        await identity?.challenge(response, { challenge: selectedChallenge })
+        await identity?.challenge(
+          response,
+          { challenge: selectedChallenge },
+          resolveRequestUrl(initialRequest.input).href,
+        )
 
         const paymentInput = resolvePaymentRetryInput(
           response,

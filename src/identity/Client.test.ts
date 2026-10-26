@@ -92,3 +92,55 @@ test('rejects an empty prover list', () => {
     'Mppx client identity must configure at least one prover.',
   )
 })
+
+test('re-proves each redirect hop for its own origin', async () => {
+  const seen: { url: string; proof: string | null; method: string; auth: string | null }[] = []
+  const client = Identity.Client.from([
+    { scope: ['https://a.example'], prove: header('X-Proof', 'a') },
+  ])
+  const fetch = vi.fn(async (request: Request) => {
+    seen.push({
+      auth: request.headers.get('authorization'),
+      method: request.method,
+      proof: request.headers.get('X-Proof'),
+      url: request.url,
+    })
+    expect(request.redirect).toBe('manual')
+    if (request.url === 'https://a.example/start')
+      return new Response(null, { headers: { location: '/next' }, status: 302 })
+    if (request.url === 'https://a.example/next')
+      return new Response(null, { headers: { location: 'https://b.example/end' }, status: 303 })
+    return new Response('ok')
+  })
+  const { response } = await client.send(
+    fetch as never,
+    new Request('https://a.example/start', {
+      body: 'x',
+      headers: { authorization: 'Bearer t' },
+      method: 'POST',
+    }),
+  )
+  expect(await response.text()).toBe('ok')
+  expect(seen).toEqual([
+    { auth: 'Bearer t', method: 'POST', proof: 'a', url: 'https://a.example/start' },
+    { auth: 'Bearer t', method: 'GET', proof: 'a', url: 'https://a.example/next' },
+    { auth: null, method: 'GET', proof: null, url: 'https://b.example/end' },
+  ])
+})
+
+test('only runs unscoped provers for a challenge from an unknown origin', async () => {
+  const ran: string[] = []
+  const prover = (name: string, scope: Identity.Prover['scope']): Identity.Prover => ({
+    scope,
+    prove: (request) => request,
+    retry() {
+      ran.push(name)
+      return false
+    },
+  })
+  const client = Identity.Client.from([prover('any', '*'), prover('scoped', ['https://a.example'])])
+  await client.challenge(new Response(null, { status: 402 }), {})
+  expect(ran).toEqual(['any'])
+  await client.challenge(new Response(null, { status: 402 }), {}, 'https://a.example/x')
+  expect(ran).toEqual(['any', 'any', 'scoped'])
+})
