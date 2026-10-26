@@ -76,6 +76,12 @@ export function from(provers: readonly Types.Prover[]): Client {
     context: Types.Context,
   ): Promise<{ request: Request; response: Response }> {
     // Callers that handle redirects themselves (e.g. the paid retry) get the raw response.
+    // Requests with subresource integrity are sent once and must not redirect, so the
+    // runtime checks the hash on the response it returns and proofs never leave scope.
+    if (request.integrity) {
+      const sent = await prove(new Request(request.clone(), { redirect: 'error' }), context)
+      return { request: sent, response: await fetch(sent) }
+    }
     if (request.redirect !== 'follow') {
       const sent = await prove(request.clone(), context)
       return { request: sent, response: await fetch(sent) }
@@ -84,10 +90,12 @@ export function from(provers: readonly Types.Prover[]): Client {
     for (let hop = 0; ; hop++) {
       const sent = await prove(new Request(current.clone(), { redirect: 'manual' }), context)
       const response = await fetch(sent)
-      // Runtimes that hide redirect targets (browsers) cannot be followed safely
-      // with proofs attached: resend without proofs and let the runtime follow.
+      // Runtimes that hide redirect targets (browsers) cannot be followed safely, and the
+      // request already reached the server, so it is never replayed.
       if (response.type === 'opaqueredirect')
-        return { request: current, response: await fetch(current.clone()) }
+        throw new TypeError(
+          'Identity requests require a runtime that exposes manual redirect responses.',
+        )
       const location = response.headers.get('location')
       if (!redirectStatuses.has(response.status) || !location) return { request: sent, response }
       if (hop >= maxRedirects) {

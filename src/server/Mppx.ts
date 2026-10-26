@@ -1216,8 +1216,6 @@ function createMethodFn(parameters: createMethodFn.Parameters): createMethodFn.R
         challenge: Challenge.Challenge
         credential?: Credential.Credential | null | undefined
         error?: Errors.PaymentError | undefined
-        /** Identity headers from a rejected payment-stage proof, such as a protocol error object. */
-        identityHeaders?: Headers | undefined
         html?: Method.Method['html'] | undefined
         request: Record<string, unknown>
       }) => {
@@ -1236,7 +1234,7 @@ function createMethodFn(parameters: createMethodFn.Parameters): createMethodFn.R
           const outcome = await IdentityServer.verify(input, paymentVerifiers, {
             challenge: parameters.challenge,
           })
-          const identityHeaders = new Headers(parameters.identityHeaders)
+          const identityHeaders = new Headers()
           if (outcome.status !== 'valid')
             for (const [name, value] of outcome.headers) identityHeaders.append(name, value)
           if ([...identityHeaders].length > 0) {
@@ -1641,14 +1639,15 @@ function createMethodFn(parameters: createMethodFn.Parameters): createMethodFn.R
             retryChallenge: challenge,
             submittedChallenge: credential.challenge,
           })
-          const response = await emitChallenge({
-            challenge,
-            credential: parsedCredential,
-            identityHeaders: outcome.headers,
-            request: parsedRequest,
-            error,
-          })
-          return { challenge: response, status: 402 }
+          // The client may already have pushed this payment, so a fresh 402 would invite
+          // it to pay again. Reject without a challenge, like a replayed credential.
+          const response = IdentityServer.toResponse(outcome)
+          return {
+            status: 200,
+            withReceipt() {
+              return response
+            },
+          } as MethodFn.Response
         }
         for (const [verifier, value] of outcome.values) identityValues.set(verifier, value)
       }
@@ -2692,6 +2691,12 @@ const paymentAuthChallengeHeader = Constants.Headers.wwwAuthenticate
 /** Identity challenge headers added to each issued 402 response. @internal */
 const identityChallengeHeaders = new WeakMap<globalThis.Response, Headers>()
 
+/** Records a merged 402's identity headers so an outer composer can forward them. @internal */
+function withIdentityHeaders(response: Response, headers: Headers | undefined): Response {
+  if (headers) identityChallengeHeaders.set(response, headers)
+  return response
+}
+
 const challengeHeaderMerges = [
   {
     name: paymentAuthChallengeHeader,
@@ -2718,19 +2723,22 @@ type ComposeEntry<methods extends readonly Method.AnyServer[]> =
   | {
       [i in keyof methods]: readonly [
         methods[i],
-        MethodFn.Options<methods[i], NonNullable<methods[i]['defaults']>>,
+        MethodFn.Options<methods[i], NonNullable<methods[i]['defaults']>> &
+          RouteIdentity<Transport.Http>,
       ]
     }[number]
   | {
       [i in keyof methods]: readonly [
         `${methods[i]['name']}/${methods[i]['intent']}`,
-        MethodFn.Options<methods[i], NonNullable<methods[i]['defaults']>>,
+        MethodFn.Options<methods[i], NonNullable<methods[i]['defaults']>> &
+          RouteIdentity<Transport.Http>,
       ]
     }[number]
   | {
       [i in keyof methods]: readonly [
         MethodFn<methods[i], any, any> & { _method: methods[i] },
-        MethodFn.Options<methods[i], NonNullable<methods[i]['defaults']>>,
+        MethodFn.Options<methods[i], NonNullable<methods[i]['defaults']>> &
+          RouteIdentity<Transport.Http>,
       ]
     }[number]
 
@@ -3068,7 +3076,10 @@ function composeHandlers(
 
       return {
         status: 402,
-        challenge: new Response(body, { status: 402, headers: mergedHeaders }),
+        challenge: withIdentityHeaders(
+          new Response(body, { status: 402, headers: mergedHeaders }),
+          identityHeaders,
+        ),
       }
     }
 
@@ -3090,7 +3101,10 @@ function composeHandlers(
 
     return {
       status: 402,
-      challenge: new Response(body, { status: 402, headers: mergedHeaders }),
+      challenge: withIdentityHeaders(
+        new Response(body, { status: 402, headers: mergedHeaders }),
+        identityHeaders,
+      ),
     }
   }
 

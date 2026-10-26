@@ -263,8 +263,10 @@ test('rejects an unbound or missing payment-stage proof without settling', async
     const missing = await fetch(seen.server.url, {
       headers: { [MppConstants.Headers.authorization]: credential },
     })
-    expect(missing.status).toBe(402)
-    expect(missing.headers.get(proofRequestHeader)).toBe(Challenge.fromResponse(missing).id)
+    // A paid attempt that fails identity is rejected without a payable challenge,
+    // so a client whose payment already went out is not asked to pay again.
+    expect(missing.status).toBe(403)
+    expect(missing.headers.has(MppConstants.Headers.wwwAuthenticate)).toBe(false)
 
     const unbound = await fetch(seen.server.url, {
       headers: {
@@ -272,10 +274,10 @@ test('rejects an unbound or missing payment-stage proof without settling', async
         [proofResponseHeader]: 'another-challenge:dana',
       },
     })
-    expect(unbound.status).toBe(402)
+    expect(unbound.status).toBe(401)
     expect(await unbound.text()).toMatch(/not bound to this challenge/)
     expect(unbound.headers.get('Proof-Result')).toBe('unbound')
-    expect(unbound.headers.get(proofRequestHeader)).toBe(Challenge.fromResponse(unbound).id)
+    expect(unbound.headers.has(MppConstants.Headers.wwwAuthenticate)).toBe(false)
     expect(settlements).toBe(before)
   } finally {
     seen.server.close()
@@ -353,6 +355,22 @@ test('does not authorize without a credential until payment-stage identity is va
   expect(gated.status).toBe(402)
   const open = await mppx.charge(charge)(new Request('https://x.test'))
   expect(open.status).toBe(200)
+})
+
+test('forwards payment-stage identity headers through nested composers', async () => {
+  const proof = proofVerifier()
+  const inner = Mppx.create({
+    methods: [serverMethod],
+    realm: 'localhost',
+    secretKey: 'test-secret-key-test-secret-key-32',
+    selectOffers: (offers) => offers,
+  })
+  const handler = Mppx.compose(inner.compose([serverMethod, { ...charge, identity: [proof] }]))
+  const result = await handler(new Request('https://x.test'))
+  expect(result.status).toBe(402)
+  if (result.status !== 402) throw new Error()
+  const response = result.challenge as Response
+  expect(response.headers.get(proofRequestHeader)).toBe(Challenge.fromResponse(response).id)
 })
 
 test('rejects payment-stage identity on methods with a preflight hook', () => {

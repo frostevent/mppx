@@ -155,3 +155,34 @@ test('never resends a paid attempt', async () => {
   expect(fetch).toHaveBeenCalledTimes(1)
   expect(retry).not.toHaveBeenCalled()
 })
+
+test('never replays a request after an opaque redirect', async () => {
+  const client = Identity.Client.from([{ scope: '*', prove: (request) => request }])
+  const fetch = vi.fn(async () => Response.redirect('https://merchant.example/next', 302))
+  const opaque = { ...new Response(null), type: 'opaqueredirect' } as unknown as Response
+  fetch.mockResolvedValueOnce(opaque)
+  await expect(
+    client.send(
+      fetch as never,
+      new Request('https://merchant.example', { body: 'x', method: 'POST' }),
+    ),
+  ).rejects.toThrow('Identity requests require a runtime that exposes manual redirect responses.')
+  expect(fetch).toHaveBeenCalledTimes(1)
+})
+
+test('sends integrity-checked requests once without following redirects', async () => {
+  const client = Identity.Client.from([{ scope: '*', prove: header('X-Proof', 'p') }])
+  const seen: Request[] = []
+  const fetch = vi.fn(async (request: Request) => {
+    seen.push(request)
+    return new Response('ok')
+  })
+  await client.send(
+    fetch as never,
+    new Request('https://merchant.example/a.js', { integrity: 'sha256-abc' }),
+  )
+  expect(seen).toHaveLength(1)
+  expect(seen[0]!.redirect).toBe('error')
+  expect(seen[0]!.integrity).toBe('sha256-abc')
+  expect(seen[0]!.headers.get('X-Proof')).toBe('p')
+})
