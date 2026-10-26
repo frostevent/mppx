@@ -215,3 +215,27 @@ test('preserves request policies and refuses cross-origin hops in same-origin mo
   ])
   expect(seen[1]!.credentials).toBe('omit')
 })
+
+test('a retry resends only the rejected redirect hop', async () => {
+  let rejected = true
+  const client = Identity.Client.from([
+    { scope: '*', prove: (request) => request, retry: () => true },
+  ])
+  const seen: string[] = []
+  const fetch = vi.fn(async (request: Request) => {
+    seen.push(`${request.method} ${new URL(request.url).pathname}`)
+    if (request.url.endsWith('/create'))
+      return new Response(null, { headers: { location: '/result' }, status: 303 })
+    if (rejected) {
+      rejected = false
+      return new Response(null, { status: 401 })
+    }
+    return new Response('ok')
+  })
+  const { response } = await client.send(
+    fetch as never,
+    new Request('https://merchant.example/create', { body: 'x', method: 'POST' }),
+  )
+  expect(await response.text()).toBe('ok')
+  expect(seen).toEqual(['POST /create', 'GET /result', 'GET /result'])
+})

@@ -74,17 +74,17 @@ export function from(provers: readonly Types.Prover[]): Client {
     fetch: typeof globalThis.fetch,
     request: Request,
     context: Types.Context,
-  ): Promise<{ request: Request; response: Response }> {
+  ): Promise<{ request: Request; response: Response; replay: Request }> {
     // Callers that handle redirects themselves (e.g. the paid retry) get the raw response.
     // Requests with subresource integrity are sent once and must not redirect, so the
     // runtime checks the hash on the response it returns and proofs never leave scope.
     if (request.integrity) {
       const sent = await prove(new Request(request.clone(), { redirect: 'error' }), context)
-      return { request: sent, response: await fetch(sent) }
+      return { replay: request, request: sent, response: await fetch(sent) }
     }
     if (request.redirect !== 'follow') {
       const sent = await prove(request.clone(), context)
-      return { request: sent, response: await fetch(sent) }
+      return { replay: request, request: sent, response: await fetch(sent) }
     }
     let current = request
     for (let hop = 0; ; hop++) {
@@ -97,7 +97,8 @@ export function from(provers: readonly Types.Prover[]): Client {
           'Identity requests require a runtime that exposes manual redirect responses.',
         )
       const location = response.headers.get('location')
-      if (!redirectStatuses.has(response.status) || !location) return { request: sent, response }
+      if (!redirectStatuses.has(response.status) || !location)
+        return { replay: current, request: sent, response }
       if (hop >= maxRedirects) {
         await response.body?.cancel()
         throw new TypeError(`Identity request exceeded ${maxRedirects} redirects.`)
@@ -119,9 +120,11 @@ export function from(provers: readonly Types.Prover[]): Client {
         (await retry(result.response, result.request, context))
       ) {
         await result.response.body?.cancel()
-        result = await sendFollowing(fetch, request, context)
+        // Only the rejected hop is resent, so earlier redirect hops (e.g. a POST before a
+        // 303) never run twice.
+        result = await sendFollowing(fetch, result.replay, context)
       }
-      return result
+      return { request: result.request, response: result.response }
     },
     async challenge(response, context, url) {
       const origin = response.url || url ? new URL(response.url || url!).origin : undefined

@@ -1160,10 +1160,9 @@ function createMethodFn(parameters: createMethodFn.Parameters): createMethodFn.R
         if (outcome.status !== 'valid') {
           // Returned on the non-200 branch so callers never run paid work: like an early
           // rejection, `challenge` holds the identity response (401/403) to send as is.
-          return {
-            challenge: IdentityServer.toResponse(outcome),
-            status: 402,
-          } as MethodFn.Response
+          const rejection = IdentityServer.toResponse(outcome)
+          identityRejections.add(rejection)
+          return { challenge: rejection, status: 402 } as MethodFn.Response
         }
         for (const [verifier, value] of outcome.values) identityValues.set(verifier, value)
       }
@@ -1248,7 +1247,10 @@ function createMethodFn(parameters: createMethodFn.Parameters): createMethodFn.R
               status: response.status,
               statusText: response.statusText,
             }) as typeof response
-            identityChallengeHeaders.set(response as globalThis.Response, identityHeaders)
+            identityChallenges.set(response as globalThis.Response, {
+              challengeId: parameters.challenge.id,
+              headers: identityHeaders,
+            })
           }
         }
         if (isIssuedChallengeResponse(response))
@@ -1646,10 +1648,9 @@ function createMethodFn(parameters: createMethodFn.Parameters): createMethodFn.R
           // it to pay again. Reject without a challenge, like a replayed credential.
           // Returned on the non-200 branch so callers never run paid work: like an early
           // rejection, `challenge` holds the identity response (401/403) to send as is.
-          return {
-            challenge: IdentityServer.toResponse(outcome),
-            status: 402,
-          } as MethodFn.Response
+          const rejection = IdentityServer.toResponse(outcome)
+          identityRejections.add(rejection)
+          return { challenge: rejection, status: 402 } as MethodFn.Response
         }
         for (const [verifier, value] of outcome.values) identityValues.set(verifier, value)
       }
@@ -2690,12 +2691,21 @@ type HandlerDiscoveryMetadata =
 
 const paymentAuthChallengeHeader = Constants.Headers.wwwAuthenticate
 
-/** Identity challenge headers added to each issued 402 response. @internal */
-const identityChallengeHeaders = new WeakMap<globalThis.Response, Headers>()
+/** A payment-stage identity challenge and the payment challenge it is bound to. @internal */
+type IdentityChallenge = { challengeId: string; headers: Headers }
 
-/** Records a merged 402's identity headers so an outer composer can forward them. @internal */
-function withIdentityHeaders(response: Response, headers: Headers | undefined): Response {
-  if (headers) identityChallengeHeaders.set(response, headers)
+/** Identity challenges added to issued 402 responses, keyed by response. @internal */
+const identityChallenges = new WeakMap<globalThis.Response, IdentityChallenge>()
+
+/** Identity rejections (401/403) returned on a route's non-success branch. @internal */
+const identityRejections = new WeakSet<globalThis.Response>()
+
+/** Records a merged 402's identity challenge so an outer composer can forward it. @internal */
+function withIdentityChallenge(
+  response: Response,
+  identity: IdentityChallenge | undefined,
+): Response {
+  if (identity) identityChallenges.set(response, identity)
   return response
 }
 
@@ -2945,13 +2955,20 @@ function composeHandlers(
 
     // No credential — evaluate handlers sequentially so authorize()/renewal hooks
     // can safely claim the request without racing each other.
+    // An identity rejection from one offer does not hide the others: it is returned only
+    // when no offer issued a payment challenge.
     const results: MethodFn.Response<Transport.Http>[] = []
     for (const handler of selectedHandlers) {
       const result = transportResults.get(handler) ?? (await handler(input))
       if (result.status === 200) return result
-      if (result.challenge.status !== 402) return result
+      const rejected = identityRejections.has(result.challenge as Response)
+      if (result.challenge.status !== 402 && !rejected) return result
       results.push(result)
     }
+    const offers = results.filter(
+      (result) => result.status === 402 && !identityRejections.has(result.challenge as Response),
+    )
+    if (offers.length === 0 && results[0]) return results[0]
 
     const rankedChallengeEntries = (() => {
       const entries: {
@@ -2992,21 +3009,31 @@ function composeHandlers(
       }
     })()
 
-    // A composed 402 can carry one identity challenge, which is bound to its own payment
-    // challenge. Offers whose identity challenge cannot be forwarded are not advertised,
-    // so a client never picks an offer it cannot prove.
-    const identityEntry = rankedChallengeEntries.find((entry) =>
-      identityChallengeHeaders.has(entry.result.challenge as Response),
-    )
-    const challengeEntries = rankedChallengeEntries.filter(
-      (entry) =>
-        entry === identityEntry ||
-        !identityChallengeHeaders.has(entry.result.challenge as Response),
-    )
+    const challengeResponses = offers.map((result) => result.challenge as Response)
 
-    const challengeResponses = results.flatMap((result) =>
-      result.status === 402 ? [result.challenge as Response] : [],
+    // A composed 402 can carry one identity challenge, bound to one payment challenge. The
+    // first offer with an identity challenge wins; other identity-bound payment challenges
+    // are not advertised, so a client never picks an offer it cannot prove. Offers without
+    // an identity requirement are always kept, including inside nested composers.
+    const identity = [
+      ...rankedChallengeEntries.map((entry) => entry.result.challenge as Response),
+      ...challengeResponses,
+    ]
+      .map((response) => identityChallenges.get(response))
+      .find((value) => value !== undefined)
+    const droppedChallengeIds = new Set(
+      challengeResponses
+        .map((response) => identityChallenges.get(response)?.challengeId)
+        .filter((id): id is string => id !== undefined && id !== identity?.challengeId),
     )
+    const challengeEntries = rankedChallengeEntries.flatMap((entry) => {
+      if (!droppedChallengeIds.has(entry.challenge.id)) return [entry]
+      const response = entry.result.challenge as Response
+      const remaining = Challenge.deserializeList(
+        response.headers.get(paymentAuthChallengeHeader)!,
+      ).filter((challenge) => !droppedChallengeIds.has(challenge.id))
+      return remaining[0] ? [{ ...entry, challenge: remaining[0] }] : []
+    })
     const unnegotiatedX402Responses =
       input.headers.has(Constants.Headers.acceptPayment) || challengeEntries.length === 0
         ? []
@@ -3039,8 +3066,17 @@ function composeHandlers(
       }
     }
 
-    const identityHeaders =
-      identityEntry && identityChallengeHeaders.get(identityEntry.result.challenge as Response)
+    if (droppedChallengeIds.size > 0) {
+      const value = mergedHeaders.get(paymentAuthChallengeHeader)
+      const advertised = value
+        ? Challenge.deserializeList(value)
+            .filter((challenge) => !droppedChallengeIds.has(challenge.id))
+            .map((challenge) => Challenge.serialize(challenge))
+        : []
+      mergedHeaders.delete(paymentAuthChallengeHeader)
+      for (const value of advertised) mergedHeaders.append(paymentAuthChallengeHeader, value)
+    }
+    const identityHeaders = identity?.headers
     if (identityHeaders)
       for (const [name, value] of identityHeaders) mergedHeaders.append(name, value)
 
@@ -3088,9 +3124,9 @@ function composeHandlers(
 
       return {
         status: 402,
-        challenge: withIdentityHeaders(
+        challenge: withIdentityChallenge(
           new Response(body, { status: 402, headers: mergedHeaders }),
-          identityHeaders,
+          identity,
         ),
       }
     }
@@ -3113,9 +3149,9 @@ function composeHandlers(
 
     return {
       status: 402,
-      challenge: withIdentityHeaders(
+      challenge: withIdentityChallenge(
         new Response(body, { status: 402, headers: mergedHeaders }),
-        identityHeaders,
+        identity,
       ),
     }
   }

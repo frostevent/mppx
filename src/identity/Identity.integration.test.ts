@@ -417,6 +417,48 @@ test('never reports a rejected identity as a successful payment', async () => {
   expect((unsigned.challenge as Response).status).toBe(403)
 })
 
+test('keeps ungated offers from nested composers when an outer offer owns the identity', async () => {
+  const outer = createPayments()
+  const inner = Mppx.create({
+    methods: [serverMethod],
+    realm: 'localhost',
+    secretKey: 'test-secret-key-test-secret-key-32',
+    selectOffers: (offers) => offers,
+  })
+  const result = await Mppx.compose(
+    outer.compose([serverMethod, { ...charge, amount: '1', identity: [proofVerifier()] }]),
+    inner.compose(
+      [serverMethod, { ...charge, amount: '2', identity: [proofVerifier()] }],
+      [serverMethod, { ...charge, amount: '3' }],
+    ),
+  )(new Request('https://x.test'))
+  if (result.status !== 402) throw new Error()
+  const response = result.challenge as Response
+  const challenges = Challenge.fromResponseList(response)
+  expect(challenges.map((challenge) => challenge.request.amount)).toEqual(['1', '3'])
+  expect(response.headers.get(proofRequestHeader)).toBe(challenges[0]!.id)
+})
+
+test('an identity rejection from one offer does not hide the other offers', async () => {
+  const mppx = createPayments()
+  const keys = await signatureKeys()
+  const { tap } = verifiers(keys)
+  const mixed = await mppx.compose(
+    [serverMethod, { ...charge, amount: '1', identity: [tap] }],
+    [serverMethod, { ...charge, amount: '2' }],
+  )(new Request('https://x.test'))
+  if (mixed.status !== 402) throw new Error()
+  const response = mixed.challenge as Response
+  expect(response.status).toBe(402)
+  expect(Challenge.fromResponseList(response).map((c) => c.request.amount)).toEqual(['2'])
+
+  const gated = await mppx.compose([serverMethod, { ...charge, identity: [tap] }])(
+    new Request('https://x.test'),
+  )
+  if (gated.status !== 402) throw new Error()
+  expect((gated.challenge as Response).status).toBe(403)
+})
+
 test('rejects payment-stage identity on methods with a preflight hook', () => {
   const preflighted = Method.toServer(method, {
     preflight: () => undefined,

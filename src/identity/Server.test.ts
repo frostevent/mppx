@@ -110,3 +110,12 @@ test('records the matched leaf through nested anyOf', async () => {
   expect(results.get(leaf)).toBe('leaf')
   expect(results.get(inner)).toEqual({ index: 1, value: 'leaf' })
 })
+
+test('anyOf runs every member so each presented proof is consumed', async () => {
+  const second = vi.fn(() => ({ status: 'valid', value: 'b' }) as const)
+  const agent = Identity.anyOf(valid('a'), { verify: second })
+  const outcome = await Identity.Server.verify(request(), [agent])
+  if (outcome.status !== 'valid') throw new Error()
+  expect(Identity.Server.results(outcome.values).get(agent)).toEqual({ index: 0, value: 'a' })
+  expect(second).toHaveBeenCalledTimes(1)
+})

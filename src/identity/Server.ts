@@ -9,7 +9,7 @@ type AnyOfVerifier = Types.Verifier<{ index: number; value: unknown }> & {
 /**
  * Accepts the first of several identity protocols that verifies.
  *
- * The result is `valid` if any member verifies, `invalid` if none verifies and
+ * Every member runs. The result is `valid` if any member verifies, `invalid` if none verifies and
  * any member was presented but failed, and `missing` otherwise, with every
  * member's challenge headers. All members must run at the same stage.
  *
@@ -28,13 +28,15 @@ export function anyOf(
     [members]: verifiers,
     stage,
     async verify(request, context) {
-      const outcomes = []
-      for (const [index, member] of verifiers.entries()) {
-        const outcome = await run(member, request, context)
-        if (outcome.status === 'valid')
-          return { status: 'valid', value: { index, value: outcome.value } }
-        outcomes.push(outcome)
-      }
+      // Every member runs, so each presented proof's replay nonce is consumed even when an
+      // earlier member already verified; the first valid member wins.
+      const all = []
+      for (const member of verifiers) all.push(await run(member, request, context))
+      const index = all.findIndex((outcome) => outcome.status === 'valid')
+      const matched = all[index]
+      if (matched?.status === 'valid')
+        return { status: 'valid', value: { index, value: matched.value } }
+      const outcomes = all as Exclude<Types.Verification, { status: 'valid' }>[]
       const headers = mergeHeaders(outcomes)
       const invalid = outcomes.find((outcome) => outcome.status === 'invalid')
       if (invalid) return { status: 'invalid', code: invalid.code, headers, reason: invalid.reason }
