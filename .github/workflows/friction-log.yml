@@ -37,7 +37,7 @@ jobs:
           ref: ${{ github.sha }}
 
       - name: Report and reconcile frictions
-        uses: wevm/frog/action@242e306ebb19fbe77b6b3bcffcd9430743f5117a # v1
+        uses: wevm/frog/action@702c4eadefe175a208290a99c36e7f4ac1390e53 # v1
         with:
           issue-author: github-actions[bot]
           version: 1.0.15

@@ -16,3 +16,8 @@ jobs:
       actions: read
       contents: read
       id-token: write
+    with:
+      # Scorecard's analysis job can't start with secure-runner: publish_results only accepts
+      # an allowlist of actions (checkout, harden-runner, upload-artifact, upload-sarif), so the
+      # check reports it without failing. Every other job starts with secure-runner.
+      secure-runner-fail-on-violation: false
