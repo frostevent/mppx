@@ -144,3 +144,14 @@ test('only runs unscoped provers for a challenge from an unknown origin', async 
   await client.challenge(new Response(null, { status: 402 }), {}, 'https://a.example/x')
   expect(ran).toEqual(['any', 'any', 'scoped'])
 })
+
+test('never resends a paid attempt', async () => {
+  const retry = vi.fn(() => true)
+  const client = Identity.Client.from([{ scope: '*', prove: (request) => request, retry }])
+  const fetch = vi.fn(async () => new Response(null, { status: 403 }))
+  await client.send(fetch as never, new Request('https://merchant.example'), {
+    challenge: { id: 'paid' } as never,
+  })
+  expect(fetch).toHaveBeenCalledTimes(1)
+  expect(retry).not.toHaveBeenCalled()
+})

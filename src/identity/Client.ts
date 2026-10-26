@@ -7,7 +7,8 @@ export type Client = {
    * Proves and sends one request. Redirects are followed hop by hop and each
    * hop is proved again for its own origin, so proofs never reach an origin
    * outside a prover's scope. If any prover asks to retry a rejected
-   * (non-402) response, the request is proved again and resent once.
+   * (non-402) response, the request is proved again and resent once, except
+   * for paid attempts, which are never resent.
    */
   send: (
     fetch: typeof globalThis.fetch,
@@ -101,7 +102,10 @@ export function from(provers: readonly Types.Prover[]): Client {
   return {
     async send(fetch, request, context = {}) {
       let result = await sendFollowing(fetch, request, context)
+      // A paid attempt (context carries the challenge) is never resent: its credential may
+      // already have settled, and replaying it could trigger another payment.
       if (
+        !context.challenge &&
         result.response.status >= 400 &&
         result.response.status !== 402 &&
         (await retry(result.response, result.request, context))
