@@ -1942,6 +1942,11 @@ describe('Fetch.from: 402 retry path', () => {
         status: 402,
         statusText: 'Payment Required',
       })
+      for (const [key, value] of [
+        ['redirected', true],
+        ['url', 'https://example.com/final'],
+      ] as const)
+        Object.defineProperty(response, key, { value })
       const mockFetch = vi.fn(async () => response)
       const eventDispatcher = Fetch.createEventDispatcher()
       const onFailure = vi.fn((payload: Fetch.PaymentFailedPayload) => {
@@ -1993,7 +1998,11 @@ describe('Fetch.from: 402 retry path', () => {
           if (bodyState === 'readable') {
             await expect(payload.response?.text()).resolves.toBe('payment required')
             await expect(response.text()).resolves.toBe('payment required')
-          } else expect(payload.response?.body).toBeNull()
+          } else {
+            expect(payload.response?.body).toBeNull()
+            expect(payload.response?.url).toBe('https://example.com/final')
+            expect(payload.response?.redirected).toBe(true)
+          }
         }
       } finally {
         reader?.releaseLock()

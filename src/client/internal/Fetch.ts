@@ -950,12 +950,15 @@ function snapshotResponse<response>(response: response): response {
     try {
       return response.clone() as response
     } catch {
-      // Consumed or locked bodies cannot be cloned; retain isolated status and headers.
-      return new Response(null, {
+      // Consumed or locked bodies cannot be cloned; retain isolated status, headers and URL.
+      const snapshot = new Response(null, {
         headers: response.headers,
         status: response.status,
         statusText: response.statusText,
-      }) as response
+      })
+      for (const key of ['redirected', 'type', 'url'] as const)
+        Object.defineProperty(snapshot, key, { value: response[key] })
+      return snapshot as response
     }
   }
   return snapshotValue(response)
