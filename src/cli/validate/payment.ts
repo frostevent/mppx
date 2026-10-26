@@ -23,6 +23,7 @@ import * as Receipt from '../../Receipt.js'
 import { tempo as tempoMethods } from '../../tempo/client/index.js'
 import { chainId as tempoChainIds } from '../../tempo/internal/defaults.js'
 import { isTempoSessionChallenge } from '../../tempo/session/client/Transports.js'
+import { isEventStream } from '../../tempo/session/precompile/Protocol.js'
 import { resolveAccount, resolveAccountName } from '../account.js'
 import type { Config } from '../config.js'
 import type * as Extension from '../Extension.js'
@@ -581,6 +582,7 @@ async function attemptCryptoPayment(
     verbose,
     paymentChain,
     Challenge.credentialHeader(challenge),
+    isTempoSessionChallenge(challenge),
   )
 }
 
@@ -748,6 +750,7 @@ async function sendAndValidateResponse(
   verbose: boolean,
   explorerChain?: Chain | undefined,
   credentialHeader: string = Constants.Headers.authorization,
+  session = false,
 ): Promise<CheckResult[]> {
   let paymentResponse: Response
   try {
@@ -765,7 +768,7 @@ async function sendAndValidateResponse(
     return results
   }
 
-  return validatePaymentResponse(results, paymentResponse, verbose, explorerChain)
+  return validatePaymentResponse(results, paymentResponse, verbose, explorerChain, session)
 }
 
 async function validatePaymentResponse(
@@ -816,7 +819,7 @@ async function validatePaymentResponse(
   // Validate receipt
   const contentType = paymentResponse.headers.get('content-type') ?? ''
   const receiptHeader = paymentResponse.headers.get(Constants.Headers.paymentReceipt)
-  if (!receiptHeader && session && contentType.startsWith('text/event-stream')) {
+  if (!receiptHeader && session && isEventStream(paymentResponse)) {
     results.push(skip('Receipt validation', 'SSE receipts are delivered in the stream'))
   } else if (!receiptHeader) {
     results.push(

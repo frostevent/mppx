@@ -336,7 +336,7 @@ test('funds the operator and handles the testnet session response', async () => 
     },
   )
   const handleResponse = vi.fn(
-    () => new Response('data: {}\n\n', { headers: { 'content-type': 'text/event-stream' } }),
+    () => new Response('data: {}\n\n', { headers: { 'content-type': 'Text/Event-Stream' } }),
   )
   MethodResponse.register(method, handleResponse)
   const methods = vi.spyOn(Tempo, 'tempo').mockReturnValue([method] as never)
