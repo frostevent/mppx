@@ -119,3 +119,9 @@ test('anyOf runs every member so each presented proof is consumed', async () => 
   expect(Identity.Server.results(outcome.values).get(agent)).toEqual({ index: 0, value: 'a' })
   expect(second).toHaveBeenCalledTimes(1)
 })
+
+test('rejects verifiers with an unknown stage instead of skipping them', () => {
+  expect(() =>
+    Identity.Server.stageOf({ stage: 'Payment' as never, verify: () => ({ status: 'missing' }) }),
+  ).toThrow('Unknown identity verifier stage "Payment".')
+})

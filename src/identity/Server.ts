@@ -124,7 +124,11 @@ export function results(values: ReadonlyMap<Types.Verifier, unknown> = new Map()
 
 /** Returns the stage a verifier runs at. @internal */
 export function stageOf(verifier: Types.Verifier): Types.Stage {
-  return verifier.stage ?? 'request'
+  const stage = verifier.stage ?? 'request'
+  // An unknown stage would leave the verifier unchecked, so it is rejected (fail closed).
+  if (stage !== 'request' && stage !== 'payment')
+    throw new TypeError(`Unknown identity verifier stage "${String(stage)}".`)
+  return stage
 }
 
 const cache = new WeakMap<Request, Map<Types.Verifier, Map<string, Promise<Types.Verification>>>>()

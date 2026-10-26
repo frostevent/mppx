@@ -239,3 +239,22 @@ test('a retry resends only the rejected redirect hop', async () => {
   expect(await response.text()).toBe('ok')
   expect(seen).toEqual(['POST /create', 'GET /result', 'GET /result'])
 })
+
+test('resends after a prover reads the rejected response body', async () => {
+  const client = Identity.Client.from([
+    {
+      scope: '*',
+      prove: (request) => request,
+      async retry(response) {
+        return (await response.json()).retry === true
+      },
+    },
+  ])
+  const fetch = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json({ retry: true }, { status: 401 }))
+    .mockResolvedValueOnce(new Response('ok'))
+  const { response } = await client.send(fetch as never, new Request('https://merchant.example'))
+  expect(await response.text()).toBe('ok')
+  expect(fetch).toHaveBeenCalledTimes(2)
+})

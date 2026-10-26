@@ -119,7 +119,8 @@ export function from(provers: readonly Types.Prover[]): Client {
         result.response.status !== 402 &&
         (await retry(result.response, result.request, context))
       ) {
-        await result.response.body?.cancel()
+        // A prover may have read the body; release it if it is still unread.
+        if (!result.response.bodyUsed) await result.response.body?.cancel().catch(() => {})
         // Only the rejected hop is resent, so earlier redirect hops (e.g. a POST before a
         // 303) never run twice.
         result = await sendFollowing(fetch, result.replay, context)
