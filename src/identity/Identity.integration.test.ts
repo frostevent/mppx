@@ -329,6 +329,32 @@ test('does not send identity to origins outside a prover scope', async () => {
   }
 })
 
+test('does not authorize without a credential until payment-stage identity is valid', async () => {
+  const authorizing = Method.toServer(method, {
+    authorize: () => ({
+      receipt: Receipt.from({
+        method: 'test',
+        reference: 'entitled',
+        status: 'success',
+        timestamp: new Date().toISOString(),
+      }),
+    }),
+    async verify() {
+      throw new Error('unreachable')
+    },
+  })
+  const mppx = Mppx.create({
+    methods: [authorizing],
+    realm: 'localhost',
+    secretKey: 'test-secret-key-test-secret-key-32',
+  })
+  const proof = proofVerifier()
+  const gated = await mppx.charge({ ...charge, identity: [proof] })(new Request('https://x.test'))
+  expect(gated.status).toBe(402)
+  const open = await mppx.charge(charge)(new Request('https://x.test'))
+  expect(open.status).toBe(200)
+})
+
 test('rejects payment-stage identity on methods with a preflight hook', () => {
   const preflighted = Method.toServer(method, {
     preflight: () => undefined,

@@ -1428,7 +1428,20 @@ function createMethodFn(parameters: createMethodFn.Parameters): createMethodFn.R
 
       // No credential provided—issue challenge
       if (!credential) {
-        if (authorize && input instanceof globalThis.Request) {
+        // Authorization without a payment credential still requires payment-stage identity;
+        // a verifier that needs the credential reports missing, so the route issues its 402.
+        const authorizeIdentity =
+          authorize && input instanceof globalThis.Request && paymentVerifiers.length > 0
+            ? await IdentityServer.verify(input, paymentVerifiers, { challenge })
+            : undefined
+        if (
+          authorize &&
+          input instanceof globalThis.Request &&
+          (!authorizeIdentity || authorizeIdentity.status === 'valid')
+        ) {
+          if (authorizeIdentity?.status === 'valid')
+            for (const [verifier, value] of authorizeIdentity.values)
+              identityValues.set(verifier, value)
           try {
             const authorized = await authorize({
               challenge,
