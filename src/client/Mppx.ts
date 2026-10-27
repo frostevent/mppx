@@ -8,6 +8,7 @@ import type * as Method from '../Method.js'
 import type * as z from '../zod.js'
 import * as Fetch from './internal/Fetch.js'
 import * as MethodChallenge from './internal/MethodChallenge.js'
+import * as ProofRealm from './internal/ProofRealm.js'
 import * as Transport from './Transport.js'
 
 export type Methods = readonly (Method.AnyClient | readonly Method.AnyClient[])[]
@@ -213,6 +214,7 @@ export function create<
       ? 'same-origin'
       : 'always',
     transport = Transport.http() as transport,
+    trustedTempoProofRealms,
   } = config
 
   const rawFetch = Fetch.unwrapFetch(config.fetch ?? globalThis.fetch)
@@ -239,6 +241,7 @@ export function create<
     ...(orderChallenges && { orderChallenges }),
     methods,
     transport,
+    ...(trustedTempoProofRealms && { trustedTempoProofRealms }),
   } satisfies Fetch.from.Config<FlattenMethods<methods>>
   const fetch = Fetch.from<FlattenMethods<methods>>(config_fetch)
 
@@ -315,6 +318,15 @@ export function create<
       challenge = challengeSnapshots[selected.index]!
       mi = selected.method as FlattenMethods<methods>[number]
       if (challenge.expires) Expires.assert(challenge.expires, challenge.id)
+      const responseUrl = resolveResponseUrl(response)
+      if (responseUrl) ProofRealm.assert(challenge, responseUrl, trustedTempoProofRealms)
+      // The MCP transport has no origin that could own the realm. Custom transports, such as the
+      // CLI's, check the realm against their own target.
+      else if (transport.name === 'mcp')
+        ProofRealm.assertWithoutOrigin(
+          challenge,
+          trustedTempoProofRealms && Object.values(trustedTempoProofRealms),
+        )
 
       const selectedChallenge = challenge
       const selectedMethod = mi
@@ -431,6 +443,12 @@ export function create<
       FlattenMethods<methods>,
       Transport.Transport<RequestInit, Response>
     >
+
+    ProofRealm.assert(
+      payment.challenge,
+      new URL(preparedHttp.replayRequest.url),
+      trustedTempoProofRealms,
+    )
 
     const paymentMethod = preparedPaymentMethods.get(payment) ?? payment.method
     const createRequestCredential = memoizeCreateCredential(async (context) => {
@@ -581,6 +599,13 @@ export declare namespace create {
     polyfill?: boolean | undefined
     /** Transport to use (defaults to HTTP). */
     transport?: transport | undefined
+    /**
+     * Server origins allowed to request zero-amount Tempo proofs for a realm other than their
+     * hostname, mapped to that realm, such as `{ 'https://api.example.com': 'MPP Payment' }`.
+     * With `Transport.mcp()`, which has no origin, only realms listed here are trusted,
+     * whatever their origin.
+     */
+    trustedTempoProofRealms?: Fetch.from.Config['trustedTempoProofRealms'] | undefined
   }
 }
 
@@ -916,4 +941,11 @@ async function createCredentialForMethod(
   return mi.createCredential(
     parsedContext !== undefined ? { challenge, context: parsedContext } : ({ challenge } as never),
   )
+}
+
+/** Returns the URL of the HTTP server that sent `response`, or `undefined` when it has none. */
+function resolveResponseUrl(response: unknown): URL | undefined {
+  if (typeof Response !== 'undefined' && response instanceof Response && response.url)
+    return new URL(response.url)
+  return undefined
 }
