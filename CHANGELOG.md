@@ -1,5 +1,13 @@
 # mppx
 
+## 0.15.1
+
+### Patch Changes
+
+- dd2c3e3: Refused to sign a zero-amount Tempo proof when the Challenge realm differs from the hostname of the server that sent it, so another origin can't relay a Challenge and replay the proof at its realm. To allow a server whose realm isn't its hostname, pin the realm to its origin with `trustedTempoProofRealms` on `Mppx.create` and `Fetch.from`, such as `{ 'https://api.example.com': 'MPP Payment' }`. Without an origin (`McpClient.wrap`, or `Mppx.create` with `Transport.mcp()`), these proofs are refused unless `trustedTempoProofRealms` lists the realm. The `mppx` CLI and `sessionManager` bootstrap apply the same check, and `sessionManager` takes `trustedTempoProofRealms` too. This matches mpp-rs, mpp-go and pympp.
+- 464df9a: Fixed Tempo charge verification rejecting split amounts written with leading zeros by comparing them as integers.
+- 464df9a: Raised the zod dependency to ^4.6.7 to pick up the fix for GHSA-mrhx-c7xc-m3w5.
+
 ## 0.15.0
 
 ### Minor Changes
