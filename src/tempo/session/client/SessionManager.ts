@@ -6,6 +6,7 @@ import * as Challenge from '../../../Challenge.js'
 import * as Fetch from '../../../client/internal/Fetch.js'
 import * as MethodChallenge from '../../../client/internal/MethodChallenge.js'
 import * as MethodResponse from '../../../client/internal/MethodResponse.js'
+import * as ProofRealm from '../../../client/internal/ProofRealm.js'
 import * as Constants from '../../../Constants.js'
 import * as Account from '../../../viem/Account.js'
 import * as Client from '../../../viem/Client.js'
@@ -517,6 +518,15 @@ export function sessionManager(parameters: sessionManager.Parameters): SessionMa
       const challenge = Challenge.fromResponseList(challengeResponse).find(isTempoChargeChallenge)
       if (!challenge) return undefined
       if (!isZeroAmountChargeChallenge(challenge)) return undefined
+      // The proof authenticates the payer at the challenge realm: sign only for the server it is
+      // sent to, and never after a redirect to another origin.
+      const target = new URL(
+        String(bootstrapInput),
+        typeof location !== 'undefined' ? location.href : undefined,
+      )
+      if (challengeResponse.url && new URL(challengeResponse.url).origin !== target.origin)
+        return undefined
+      ProofRealm.assert(challenge, target, parameters.trustedTempoProofRealms)
       const credential = await chargeMethod.createCredential({
         challenge: challenge as never,
         context: {},
@@ -1150,6 +1160,11 @@ export namespace sessionManager {
       autoSwap?: sessionPlugin.Parameters['autoSwap']
       /** Enables same-route HEAD bootstrap from a server session snapshot before opening a new channel. */
       bootstrap?: boolean | undefined
+      /**
+       * Server origins allowed to request bootstrap proofs for a realm other than their hostname,
+       * mapped to that realm, such as `{ 'https://api.example.com': 'MPP Payment' }`.
+       */
+      trustedTempoProofRealms?: ProofRealm.TrustedRealms | undefined
       /** Viem client instance. Shorthand for `getClient: () => client`. */
       client?: import('viem').Client | undefined
       /** Token decimals used to convert `maxDeposit` to raw units. Defaults to `6`. */
