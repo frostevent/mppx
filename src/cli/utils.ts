@@ -91,6 +91,8 @@ export const pc = (() => {
   }
 })()
 
+const redactedRequestHeaders = new Set(['proof-response'])
+
 export function printRequestHeaders(
   reqUrl: string,
   init: RequestInit,
@@ -101,7 +103,7 @@ export function printRequestHeaders(
   info(`> ${method} ${pathname} HTTP/1.1\n`)
   info(`> Host: ${host}\n`)
   for (const [k, v] of Object.entries((init.headers ?? {}) as Record<string, string>))
-    info(`> ${k}: ${v}\n`)
+    info(`> ${k}: ${redactedRequestHeaders.has(k.toLowerCase()) ? '[redacted]' : v}\n`)
   info('>\n')
 }
 

@@ -35,7 +35,7 @@ export function wallet(config: wallet.Config): Types.Wallet {
   return {
     headers: HEADER,
     async proofResponse({ challenge, origin, proofRequest }) {
-      const payload = payloadFor(proofRequest, challenge.id)
+      const payload = select(proofRequest, challenge.id)?.payload
       if (!payload) return undefined
       const requirement = agent.getDigitalCredentialRequest(payload).requests[0]!
       const presentation = await config.present({ challenge, origin, requirement })
@@ -58,22 +58,34 @@ export function wallet(config: wallet.Config): Types.Wallet {
   }
 }
 
-function payloadFor(
+/**
+ * Returns the `PROOF-REQUEST` entry whose `payment.notes` is `challengeId`, unchanged, or
+ * `undefined` when the header has none for that challenge.
+ */
+export function proofRequestFor(proofRequest: string, challengeId: string): string | undefined {
+  return select(proofRequest, challengeId)?.entry
+}
+
+function select(
   proofRequest: string,
   challengeId: string,
 ):
-  | (X401Payload & {
-      credential_requirements: { digital: { requests: DigitalCredentialRequestEntry[] } }
-    })
+  | {
+      entry: string
+      payload: X401Payload & {
+        credential_requirements: { digital: { requests: DigitalCredentialRequestEntry[] } }
+      }
+    }
   | undefined {
   for (const value of proofRequest.split(',')) {
+    const entry = value.trim()
     let payload: X401Payload
     try {
-      payload = agent.decodePayload(value.trim())
+      payload = agent.decodePayload(entry)
     } catch {
       continue
     }
-    if (payload.payment?.notes === challengeId) return payload
+    if (payload.payment?.notes === challengeId) return { entry, payload }
   }
   return undefined
 }

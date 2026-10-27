@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url'
 const root = path.resolve(import.meta.dirname, '..')
 const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'mppx-package-'))
 const limits = {
-  fileCount: 500,
+  fileCount: 510,
   packedBytes: 1_200_000,
   unpackedBytes: 4_750_000,
 }
@@ -120,9 +120,12 @@ registerHooks({
     return next(specifier, context)
   },
 })`
-  const coreEntries = ['dist/index.js', 'dist/server/index.js', 'dist/client/index.js'].map(
-    (file) => pathToFileURL(path.join(root, file)).href,
-  )
+  const coreEntries = [
+    'dist/index.js',
+    'dist/server/index.js',
+    'dist/client/index.js',
+    'dist/cli/cli.js',
+  ].map((file) => pathToFileURL(path.join(root, file)).href)
   run(process.execPath, [
     '--import',
     `data:text/javascript,${encodeURIComponent(withoutX401Node)}`,

@@ -1,8 +1,10 @@
+import { spawn } from 'node:child_process'
 import { once } from 'node:events'
 import * as fs from 'node:fs'
 import { createRequire } from 'node:module'
 import * as path from 'node:path'
 
+import { agent as x401Agent, HEADER as X401_HEADER } from '@proof.com/x401-node'
 import { Cli, Errors, z } from 'incur'
 import { Base64 } from 'ox'
 import { type Address, createClient, http } from 'viem'
@@ -18,7 +20,10 @@ import * as Mppx from '../client/Mppx.js'
 import * as Transport from '../client/Transport.js'
 import * as Constants from '../Constants.js'
 import { validate as validateDiscovery } from '../discovery/Validate.js'
+import { PaymentExpiredError } from '../Errors.js'
+import * as Expires from '../Expires.js'
 import { isTempoSessionChallenge } from '../tempo/session/client/Transports.js'
+import * as x401_Client from '../x401/Client.js'
 import * as x402_Header from '../x402/Header.js'
 import * as x402_ChallengeBrand from '../x402/internal/ChallengeBrand.js'
 import * as x402_Types from '../x402/Types.js'
@@ -132,6 +137,34 @@ async function writeResponseBody(response: Response) {
     }
   } finally {
     reader.releaseLock()
+  }
+}
+
+async function runX401Command(command: string, proofRequest: string): Promise<string> {
+  const child = spawn(command, { shell: true, stdio: ['pipe', 'pipe', 'inherit'] })
+  child.stdin.on('error', () => {})
+  child.stdin.end(`${proofRequest}\n`)
+  const chunks: Buffer[] = []
+  child.stdout.on('data', (chunk: Buffer) => chunks.push(chunk))
+  const [code, signal] = (await once(child, 'close')) as [number | null, NodeJS.Signals | null]
+  if (code !== 0)
+    throw new Error(
+      signal
+        ? `--x401-command was terminated by ${signal}.`
+        : `--x401-command exited with status ${code}.`,
+    )
+  const proofResponse = Buffer.concat(chunks).toString('utf8').trim()
+  if (!/^[\x21-\x7e]+$/.test(proofResponse))
+    throw new Error('--x401-command did not print a PROOF-RESPONSE on stdout.')
+  return proofResponse
+}
+
+function describeProofResult(proofResult: string): string {
+  try {
+    const { error, error_description } = x401Agent.decodeErrorObject(proofResult)
+    return error_description ? `${error}: ${error_description}` : error
+  } catch {
+    return 'unreadable PROOF-RESULT'
   }
 }
 
@@ -497,6 +530,10 @@ const cli = Cli.create('mppx', {
       .default(0)
       .meta({ count: true })
       .describe('Verbosity (-v details, -vv headers)'),
+    x401Command: z
+      .string()
+      .optional()
+      .describe('Command that reads an x401 PROOF-REQUEST on stdin and prints the PROOF-RESPONSE'),
   }),
   alias: {
     account: 'a',
@@ -708,6 +745,26 @@ const cli = Cli.create('mppx', {
         }
       }
       const selectedChallengeResponse = toSelectedChallengeResponse(challenge, challengeResponse)
+      const offeredProofRequest = challengeResponse.headers.get(X401_HEADER.PROOF_REQUEST)
+      const proofRequest =
+        offeredProofRequest === null
+          ? undefined
+          : x401_Client.proofRequestFor(offeredProofRequest, challenge.id)
+      if (proofRequest !== undefined) {
+        if (isTempoSessionChallenge(challenge))
+          return c.error({
+            code: 'UNSUPPORTED_PROOF',
+            message: 'x401 proofs are not supported with tempo/session payments.',
+            exitCode: 2,
+          })
+        if (!c.options.x401Command)
+          return c.error({
+            code: 'X401_COMMAND_REQUIRED',
+            message:
+              'This payment requires an x401 proof. Pass --x401-command "<cmd>", a command that reads the PROOF-REQUEST on stdin and prints the PROOF-RESPONSE on stdout.',
+            exitCode: 2,
+          })
+      }
 
       let tokenSymbol = (challenge.request.currency as string | undefined) ?? ''
       let tokenDecimals = (challenge.request.decimals as number | undefined) ?? 6
@@ -870,6 +927,29 @@ const cli = Cli.create('mppx', {
               pluginResult?.credentialContext,
             )
 
+      let proofResponse: string | undefined
+      if (proofRequest !== undefined) {
+        try {
+          proofResponse = await runX401Command(c.options.x401Command!, proofRequest)
+        } catch (error) {
+          return c.error({
+            code: 'X401_COMMAND_FAILED',
+            message: (error as Error).message,
+            exitCode: 1,
+          })
+        }
+        try {
+          if (challenge.expires) Expires.assert(challenge.expires, challenge.id)
+        } catch (error) {
+          if (!(error instanceof PaymentExpiredError)) throw error
+          return c.error({
+            code: 'PAYMENT_EXPIRED',
+            message: `${error.message} The x401 proof arrived after the payment challenge expired, so nothing was paid.`,
+            exitCode: 1,
+          })
+        }
+      }
+
       let credentialResponse: Response
       let credential: string | undefined
       if (configMethod && isTempoSessionChallenge(challenge)) {
@@ -938,6 +1018,7 @@ const cli = Cli.create('mppx', {
         const credentialHeaders = {
           ...normalizeHeaders(challengeRequest.init.headers),
           [credentialHeader]: credential,
+          ...(proofResponse !== undefined && { [X401_HEADER.PROOF_RESPONSE]: proofResponse }),
         }
         const credentialTarget = isX402Challenge
           ? resolveFetchTarget((x402ResourceUrl(challenge) ?? challengeResponse.url) || url)
@@ -953,6 +1034,19 @@ const cli = Cli.create('mppx', {
         if (c.options.verbose >= 2)
           printRequestHeaders(credentialTarget.url, credentialFetchInit, info)
         credentialResponse = await targetFetch(credentialTarget.url, credentialFetchInit)
+      }
+
+      const proofResult = credentialResponse.headers.get(X401_HEADER.PROOF_RESULT)
+      if (
+        proofResult !== null &&
+        (credentialResponse.status === 400 || credentialResponse.status === 401)
+      ) {
+        printResponseHeaders(credentialResponse, headerOpts)
+        return c.error({
+          code: 'PROOF_REJECTED',
+          message: `The server rejected the x401 proof (${describeProofResult(proofResult)}).`,
+          exitCode: 75,
+        })
       }
 
       if (c.options.fail && credentialResponse.status >= 400)
