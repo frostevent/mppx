@@ -579,6 +579,8 @@ export function requestInitWithAuthorization(
   return setCredentialHeader(
     {
       ...init,
+      // Runtimes do not strip custom payment headers on cross-origin redirects.
+      redirect: 'manual',
       headers: {
         ...Fetch.normalizeHeaders(requestHeaders),
         ...Fetch.normalizeHeaders(init?.headers),
@@ -714,6 +716,7 @@ async function postManagementCredential(parameters: {
         parameters.fetch(managementInput(parameters.input), {
           method: 'POST',
           signal: controller.signal,
+          redirect: 'manual',
           headers: { [Challenge.credentialHeader(challenge)]: authorization },
         }),
         aborted,
@@ -832,6 +835,7 @@ export async function closeHttpSession(
     })
     return parameters.fetch(parameters.lastUrl!, {
       method: 'POST',
+      redirect: 'manual',
       headers: { [Challenge.credentialHeader(challenge)]: credential },
     })
   }

@@ -534,7 +534,12 @@ export function sessionManager(parameters: sessionManager.Parameters): SessionMa
       })
       const response = await config.fetch(
         bootstrapInput,
-        setCredentialHeader(headInit, Challenge.credentialHeader(challenge), credential),
+        // Runtimes do not strip custom payment headers on cross-origin redirects.
+        setCredentialHeader(
+          { ...headInit, redirect: 'manual' },
+          Challenge.credentialHeader(challenge),
+          credential,
+        ),
       )
       if (response.ok) return await storeSnapshotHeader(response)
       return undefined
