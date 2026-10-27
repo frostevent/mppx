@@ -313,6 +313,58 @@ export declare namespace PaymentRequiredError {
 }
 
 /**
+ * An x401 route received a payment credential without a `PROOF-RESPONSE`.
+ *
+ * Answered with 401 and a `PROOF-REQUEST` for the paid challenge, never 402, so an
+ * auto-paying client does not pay again. Nothing is settled.
+ */
+export class ProofRequiredError extends PaymentError {
+  override readonly name = 'ProofRequiredError'
+  readonly title = 'Proof Required'
+  readonly type = 'urn:x401:problem:proof-required'
+  override readonly status = 401
+
+  constructor() {
+    super('A PROOF-RESPONSE is required with this payment.')
+  }
+}
+
+/**
+ * An x401 route rejected the `PROOF-RESPONSE` sent with a payment credential.
+ *
+ * Answered with 400 (malformed) or 401 (rejected) and a `PROOF-RESULT`, never 402, so an
+ * auto-paying client does not pay again. Nothing is settled.
+ */
+export class ProofRejectedError extends PaymentError {
+  override readonly name = 'ProofRejectedError'
+  readonly title = 'Proof Rejected'
+  readonly type = 'urn:x401:problem:proof-rejected'
+  override readonly status: 400 | 401
+  /** Encoded x401 error object sent as the `PROOF-RESULT` header. */
+  readonly result: string
+
+  constructor(options: ProofRejectedError.Options) {
+    const { cause, reason, result, status } = options
+    super(`The proof was rejected: ${reason}.`, { cause })
+    this.result = result
+    this.status = status
+  }
+}
+
+export declare namespace ProofRejectedError {
+  type Options = {
+    /** Underlying error. Never serialized into Problem Details. */
+    cause?: unknown
+    /** Reason the proof was rejected. Never include the proof itself. */
+    reason: string
+    /** Encoded x401 error object sent as the `PROOF-RESULT` header. */
+    result: string
+    /** 400 for a malformed `PROOF-RESPONSE`, 401 for a rejected presentation. */
+    status: 400 | 401
+  }
+}
+
+/**
  * Credential payload does not match the expected schema.
  */
 export class InvalidPayloadError extends PaymentError {

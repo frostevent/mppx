@@ -36,6 +36,7 @@ const alias = {
   'mppx/x402/mcp': path.resolve(import.meta.dirname, 'src/x402/mcp.ts'),
   'mppx/x402/next': path.resolve(import.meta.dirname, 'src/x402/middlewares/next'),
   'mppx/x402': path.resolve(import.meta.dirname, 'src/x402'),
+  'mppx/x401': path.resolve(import.meta.dirname, 'src/x401'),
   mppx: path.resolve(import.meta.dirname, 'src'),
   '~test': path.resolve(import.meta.dirname, 'test'),
 }

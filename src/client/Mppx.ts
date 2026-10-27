@@ -5,6 +5,7 @@ import * as Constants from '../Constants.js'
 import * as Expires from '../Expires.js'
 import * as AcceptPayment from '../internal/AcceptPayment.js'
 import type * as Method from '../Method.js'
+import type * as X401 from '../x401/Types.js'
 import type * as z from '../zod.js'
 import * as Fetch from './internal/Fetch.js'
 import * as MethodChallenge from './internal/MethodChallenge.js'
@@ -215,6 +216,7 @@ export function create<
       : 'always',
     transport = Transport.http() as transport,
     trustedTempoProofRealms,
+    x401,
   } = config
 
   const rawFetch = Fetch.unwrapFetch(config.fetch ?? globalThis.fetch)
@@ -242,6 +244,7 @@ export function create<
     methods,
     transport,
     ...(trustedTempoProofRealms && { trustedTempoProofRealms }),
+    ...(x401 && { x401: x401 as X401.Wallet }),
   } satisfies Fetch.from.Config<FlattenMethods<methods>>
   const fetch = Fetch.from<FlattenMethods<methods>>(config_fetch)
 
@@ -606,6 +609,15 @@ export declare namespace create {
      * whatever their origin.
      */
     trustedTempoProofRealms?: Fetch.from.Config['trustedTempoProofRealms'] | undefined
+    /**
+     * x401 wallet from `x401.Client.wallet()` in `mppx/x401`. On a `402` carrying a
+     * `PROOF-REQUEST`, the presentation for the selected challenge is obtained before the
+     * payment credential and sent as `PROOF-RESPONSE` on the same paid retry. Applies to
+     * `fetch`, not to `prepareRequest`.
+     */
+    x401?: transport extends Transport.Transport<RequestInit, Response>
+      ? X401.Wallet | undefined
+      : never
   }
 }
 

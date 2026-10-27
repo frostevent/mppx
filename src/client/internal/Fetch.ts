@@ -5,6 +5,7 @@ import * as Expires from '../../Expires.js'
 import * as AcceptPayment from '../../internal/AcceptPayment.js'
 import type { MaybePromise } from '../../internal/types.js'
 import type * as Method from '../../Method.js'
+import type * as X401 from '../../x401/Types.js'
 import type * as z from '../../zod.js'
 import * as Transport from '../Transport.js'
 import * as MethodChallenge from './MethodChallenge.js'
@@ -250,6 +251,7 @@ export function from<const methods extends readonly Method.AnyClient[]>(
     orderChallenges,
     transport = Transport.http(),
     trustedTempoProofRealms,
+    x401,
   } = config
   const events = config.eventDispatcher ?? createEventDispatcher()
   const resolvedAcceptPayment = acceptPayment ?? AcceptPayment.resolve(methods)
@@ -338,6 +340,13 @@ export function from<const methods extends readonly Method.AnyClient[]>(
           () => resolveRequestUrl(paymentInput),
           trustedTempoProofRealms,
         )
+        const proof = x401
+          ? await presentProof(x401, {
+              challenge: selectedChallenge,
+              input: paymentInput,
+              response,
+            })
+          : undefined
         const previousCredential = preparedCredential
         const key = Challenge.serialize(selectedChallenge)
         const sameAttempt =
@@ -439,7 +448,10 @@ export function from<const methods extends readonly Method.AnyClient[]>(
             ...transport.setCredential(
               {
                 ...fetchInit,
-                headers: initialRequest.headers,
+                headers:
+                  proof === undefined
+                    ? initialRequest.headers
+                    : withHeader(initialRequest.headers, x401!.headers.PROOF_RESPONSE, proof),
               },
               credential,
               { challenge: selectedChallenge },
@@ -615,6 +627,8 @@ export declare namespace from {
      * hostname, mapped to that realm, such as `{ 'https://api.example.com': 'MPP Payment' }`.
      */
     trustedTempoProofRealms?: ProofRealm.TrustedRealms | undefined
+    /** x401 wallet from `x401.Client.wallet()` in `mppx/x401`. */
+    x401?: X401.Wallet | undefined
   }
 
   type Fetch<methods extends readonly Method.AnyClient[] = readonly Method.AnyClient[]> = (
@@ -1177,6 +1191,34 @@ function resolveRequestUrl(input: RequestInfo | URL): URL {
   if (input instanceof URL) return input
   if (input instanceof Request) return new URL(input.url)
   return new URL(input, isBrowser() ? globalThis.location.href : undefined)
+}
+
+function withHeader(headers: Headers, name: string, value: string): Headers {
+  const copy = new Headers(headers)
+  copy.set(name, value)
+  return copy
+}
+
+/**
+ * Obtains the encoded `PROOF-RESPONSE` for the selected challenge of a `402` carrying a
+ * `PROOF-REQUEST`. A presentation that returns after the challenge's `expires` is discarded
+ * with `PaymentExpiredError`, so no payment is attempted for a challenge the server would
+ * refuse.
+ */
+async function presentProof(
+  wallet: X401.Wallet,
+  parameters: { challenge: Challenge.Challenge; input: RequestInfo | URL; response: Response },
+): Promise<string | undefined> {
+  const { challenge, input, response } = parameters
+  const proofRequest = response.headers.get(wallet.headers.PROOF_REQUEST)
+  if (proofRequest === null) return undefined
+  const proof = await wallet.proofResponse({
+    challenge,
+    origin: resolveRequestUrl(input).origin,
+    proofRequest,
+  })
+  if (proof !== undefined && challenge.expires) Expires.assert(challenge.expires, challenge.id)
+  return proof
 }
 
 function resolvePaymentRetryInput(
