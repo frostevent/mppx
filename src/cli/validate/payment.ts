@@ -24,6 +24,7 @@ import * as Receipt from '../../Receipt.js'
 import { tempo as tempoMethods } from '../../tempo/client/index.js'
 import { chainId as tempoChainIds } from '../../tempo/internal/defaults.js'
 import { isTempoSessionChallenge } from '../../tempo/session/client/Transports.js'
+import { isEventStream } from '../../tempo/session/precompile/Protocol.js'
 import { resolveAccount, resolveAccountName } from '../account.js'
 import type { Config } from '../config.js'
 import type * as Extension from '../Extension.js'
@@ -270,7 +271,13 @@ export async function validatePaymentFlow(
           headers: fetchHeaders,
           body: fetchBody ?? null,
         })
-        await validatePaymentResponse(results, response, verbose, tempoModerato)
+        await validatePaymentResponse(
+          results,
+          response,
+          verbose,
+          tempoModerato,
+          isTempoSessionChallenge(tempoTestnetChallenge),
+        )
       } catch (error) {
         results.push(fail('Payment: create credential', (error as Error).message))
       }
@@ -547,7 +554,7 @@ async function attemptCryptoPayment(
         headers: fetchHeaders,
         body: fetchBody ?? null,
       })
-      await validatePaymentResponse(results, response, verbose, paymentChain)
+      await validatePaymentResponse(results, response, verbose, paymentChain, true)
     } catch (error) {
       results.push(fail(tag, (error as Error).message))
     }
@@ -577,6 +584,7 @@ async function attemptCryptoPayment(
     verbose,
     paymentChain,
     Challenge.credentialHeader(challenge),
+    isTempoSessionChallenge(challenge),
   )
 }
 
@@ -748,6 +756,7 @@ async function sendAndValidateResponse(
   verbose: boolean,
   explorerChain?: Chain | undefined,
   credentialHeader: string = Constants.Headers.authorization,
+  session = false,
 ): Promise<CheckResult[]> {
   let paymentResponse: Response
   try {
@@ -765,7 +774,7 @@ async function sendAndValidateResponse(
     return results
   }
 
-  return validatePaymentResponse(results, paymentResponse, verbose, explorerChain)
+  return validatePaymentResponse(results, paymentResponse, verbose, explorerChain, session)
 }
 
 async function validatePaymentResponse(
@@ -773,6 +782,7 @@ async function validatePaymentResponse(
   paymentResponse: Response,
   verbose: boolean,
   explorerChain?: Chain | undefined,
+  session = false,
 ): Promise<CheckResult[]> {
   if (paymentResponse.status === 402) {
     const body = await paymentResponse.text().catch(() => '')
@@ -813,8 +823,11 @@ async function validatePaymentResponse(
   }
 
   // Validate receipt
+  const contentType = paymentResponse.headers.get('content-type') ?? ''
   const receiptHeader = paymentResponse.headers.get(Constants.Headers.paymentReceipt)
-  if (!receiptHeader) {
+  if (!receiptHeader && session && isEventStream(paymentResponse)) {
+    results.push(skip('Receipt validation', 'SSE receipts are delivered in the stream'))
+  } else if (!receiptHeader) {
     results.push(
       fail(
         'Payment-Receipt header present',
@@ -865,7 +878,6 @@ async function validatePaymentResponse(
   }
 
   // Validate response body
-  const contentType = paymentResponse.headers.get('content-type') ?? ''
   const body = await paymentResponse.text().catch(() => '')
 
   if (body.length > 0) {
