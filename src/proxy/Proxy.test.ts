@@ -317,13 +317,13 @@ describe('create', () => {
         Service.from('api', {
           baseUrl: 'https://api.example.com',
           routes: {
-            'GET /v1/models': { summary: 'List models' },
+            'GET /v1/models': { free: true, summary: 'List models' },
             'POST /v1/generate': {
               pay: mppx_server.charge({ amount: '1' }),
               requestBody,
               summary: 'Generate text',
             },
-            'POST /v1/validate': { requestBody, summary: 'Validate a prompt' },
+            'POST /v1/validate': { free: true, requestBody, summary: 'Validate a prompt' },
           },
         }),
       ],
@@ -346,13 +346,13 @@ describe('create', () => {
     expect(body.paths['/api/v1/models'].get.requestBody).toBeUndefined()
   })
 
-  test('behavior: endpoint object without pay is a free passthrough', async () => {
+  test('behavior: endpoint object with free: true is a free passthrough', async () => {
     upstream = await createUpstream((req) => Response.json({ path: new URL(req.url).pathname }))
     const proxy = ApiProxy.create({
       services: [
         Service.from('api', {
           baseUrl: upstream.url,
-          routes: { 'GET /v1/models': { summary: 'List models' } },
+          routes: { 'GET /v1/models': { free: true, summary: 'List models' } },
         }),
       ],
     })

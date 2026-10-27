@@ -34,7 +34,7 @@ export type Docs = {
  * An endpoint definition.
  *
  * - `IntentHandler` — payment required, calls the handler to issue a 402 challenge or verify payment.
- * - `EndpointConfig` — `{ pay, options, summary, requestBody }`; payment required when `pay` is set, free otherwise.
+ * - `EndpointConfig` — `{ pay, options, summary, requestBody }` (paid) or `{ free: true, options, summary, requestBody }` (free).
  * - `true` — free passthrough, no payment required, rewriteRequest is applied.
  */
 export type Endpoint = IntentHandler | EndpointConfig | true
@@ -52,15 +52,28 @@ export type Endpoint = IntentHandler | EndpointConfig | true
  *       content: { 'application/json': { schema: { type: 'object' } } },
  *     },
  *   },
- *   'GET /v1/status': { summary: 'Service status' },
+ *   'GET /v1/status': { free: true, summary: 'Service status' },
  * }
  * ```
  */
-export type EndpointConfig = {
+export type EndpointConfig = EndpointMetadata &
+  (
+    | {
+        /** Payment handler. */
+        pay: IntentHandler
+        free?: undefined
+      }
+    | {
+        /** Free passthrough route, declared explicitly so a missing handler never means free. */
+        free: true
+        pay?: undefined
+      }
+  )
+
+/** Per-endpoint config and discovery metadata shared by paid and free endpoint objects. */
+export type EndpointMetadata = {
   /** Per-endpoint config overrides passed to request hooks via `ctx`. */
   options?: EndpointOptions | undefined
-  /** Payment handler. Omit for a free passthrough route. */
-  pay?: IntentHandler | undefined
   /** OpenAPI request body object emitted in `/openapi.json`. */
   requestBody?: Record<string, unknown> | undefined
   /** Short summary emitted in `/openapi.json`. */
@@ -275,11 +288,19 @@ export function getOptions(endpoint: Endpoint): EndpointOptions | undefined {
   return undefined
 }
 
-/** Returns the payment handler of an endpoint, or `undefined` for a free route. */
+/**
+ * Returns the payment handler of an endpoint, or `undefined` for a route declared free (`true` or
+ * `{ free: true }`). Throws for anything else, such as `{ pay: undefined }`, so a missing handler
+ * fails closed instead of proxying for free with the service's credentials.
+ */
 export function getHandler(endpoint: Endpoint): IntentHandler | undefined {
   if (typeof endpoint === 'function') return endpoint
-  if (typeof endpoint === 'object' && endpoint !== null) return endpoint.pay
-  return undefined
+  if (endpoint === true) return undefined
+  if (typeof endpoint === 'object' && endpoint !== null) {
+    if (typeof endpoint.pay === 'function') return endpoint.pay
+    if (endpoint.free === true && endpoint.pay === undefined) return undefined
+  }
+  throw new Error('Invalid proxy endpoint: expected a payment handler, `true` or `{ free: true }`.')
 }
 
 /** Derives discovery payment metadata from an explicitly priced endpoint handler. */
