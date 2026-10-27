@@ -103,13 +103,13 @@ try {
       return false
     const source = fs.readFileSync(path.join(root, file), 'utf8')
     return (
-      x401NodeImport.test(source) ||
+      (!file.startsWith('dist/cli/') && x401NodeImport.test(source)) ||
       (!file.startsWith('dist/x401/') && file.endsWith('.js') && x401ModuleImport.test(source))
     )
   })
   if (x401Leaks.length > 0)
     throw new Error(
-      `Package files outside mppx/x401 import @proof.com/x401-node:\n${x401Leaks.map((file) => `- ${file}`).join('\n')}`,
+      `Package files outside mppx/x401 and the CLI import @proof.com/x401-node:\n${x401Leaks.map((file) => `- ${file}`).join('\n')}`,
     )
 
   const withoutX401Node = `import { registerHooks } from 'node:module'
@@ -120,12 +120,9 @@ registerHooks({
     return next(specifier, context)
   },
 })`
-  const coreEntries = [
-    'dist/index.js',
-    'dist/server/index.js',
-    'dist/client/index.js',
-    'dist/cli/cli.js',
-  ].map((file) => pathToFileURL(path.join(root, file)).href)
+  const coreEntries = ['dist/index.js', 'dist/server/index.js', 'dist/client/index.js'].map(
+    (file) => pathToFileURL(path.join(root, file)).href,
+  )
   run(process.execPath, [
     '--import',
     `data:text/javascript,${encodeURIComponent(withoutX401Node)}`,

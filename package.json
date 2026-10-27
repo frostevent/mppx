@@ -37,7 +37,6 @@
     "@hono/node-server": "2.1.1",
     "@modelcontextprotocol/sdk": "1.32.0",
     "@playwright/test": "^1.62.1",
-    "@proof.com/x401-node": "0.3.3",
     "@types/express": "^5.0.6",
     "@types/node": "^26.2.0",
     "@types/ws": "^8.18.1",
@@ -275,7 +274,6 @@
   },
   "peerDependencies": {
     "@modelcontextprotocol/sdk": ">=1.25.0",
-    "@proof.com/x401-node": ">=0.3.3",
     "@x402/core": ">=2.22.0",
     "@x402/express": ">=2.22.0",
     "@x402/hono": ">=2.22.0",
@@ -289,9 +287,6 @@
   },
   "peerDependenciesMeta": {
     "@modelcontextprotocol/sdk": {
-      "optional": true
-    },
-    "@proof.com/x401-node": {
       "optional": true
     },
     "@x402/core": {
@@ -323,6 +318,7 @@
     }
   },
   "dependencies": {
+    "@proof.com/x401-node": "0.3.3",
     "@stripe/stripe-js": "9.17.0",
     "eventsource-parser": "4.1.1",
     "ox": "catalog:",

@@ -7,6 +7,7 @@ import { build } from 'rolldown'
 const root = path.resolve(import.meta.dirname, '..')
 const packageJson = JSON.parse(fs.readFileSync(path.resolve(root, 'package.json'), 'utf8'))
 const externalPackages = [
+  '@proof.com/x401-node',
   '@stripe/stripe-js',
   'eventsource-parser',
   'ox',
