@@ -58,6 +58,9 @@ importers:
 
   .:
     dependencies:
+      '@proof.com/x401-node':
+        specifier: 0.3.3
+        version: 0.3.3
       '@stripe/stripe-js':
         specifier: 9.17.0
         version: 9.17.0
@@ -1405,6 +1408,9 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@owf/identity-common@0.4.2':
+    resolution: {integrity: sha512-z+iFDpBYo2Z2uVnE5UytKlAHPaKHReijHaVXl45Yb9LbeR12hGg5CdfzfY0Tfm5m/Dr8iClfAiFizA9JYuUJ0Q==}
+
   '@oxc-project/runtime@0.154.0':
     resolution: {integrity: sha512-cBQNGoh659BNgvA8OC/e4BNDtFkv03dJaYdkp2adgOQNtISNAPQ+nB4S8XvWtNk7Xl+0g+7aa+iRGR25Xycd1Q==}
     engines: {node: ^20.19.0 || >=22.12.0}
@@ -1834,6 +1840,10 @@ packages:
 
   '@polka/url@1.0.0-next.29':
     resolution: {integrity: sha512-wwQAWhWSuHaag8c4q/KN/vCoeOJYshAIvMQwD4GpSb3OiZklFfvAgmj0VCBBImRpuF/aFgIRzllXlVX93Jevww==}
+
+  '@proof.com/x401-node@0.3.3':
+    resolution: {integrity: sha512-jLS9kVKgCo1GPg+xfD5mCjg4cFzpxb3Y4pBXu/B0SVIzg64BHfZ3wp2AEehpMpkXw246wryaq+mlZFGjMI+Kbw==}
+    engines: {node: '>=22.0.0'}
 
   '@protobufjs/aspromise@1.1.2':
     resolution: {integrity: sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ==}
@@ -5803,6 +5813,8 @@ snapshots:
   '@oven/bun-windows-x64@1.4.4':
     optional: true
 
+  '@owf/identity-common@0.4.2': {}
+
   '@oxc-project/runtime@0.154.0': {}
 
   '@oxc-project/types@0.144.0': {}
@@ -6012,6 +6024,10 @@ snapshots:
   '@pnpm/deps.graph-sequencer@1100.0.1': {}
 
   '@polka/url@1.0.0-next.29': {}
+
+  '@proof.com/x401-node@0.3.3':
+    dependencies:
+      '@owf/identity-common': 0.4.2
 
   '@protobufjs/aspromise@1.1.2': {}
 

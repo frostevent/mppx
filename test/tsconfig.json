@@ -17,6 +17,7 @@
       "mppx/attestation/tap": ["../src/tap/index.ts"],
       "mppx/attestation/web-bot-auth": ["../src/web-bot-auth/index.ts"],
       "mppx/x402": ["../src/x402/index.ts"],
+      "mppx/x401": ["../src/x401/index.ts"],
       "mppx/x402/express": ["../src/x402/middlewares/express.ts"],
       "mppx/x402/hono": ["../src/x402/middlewares/hono.ts"],
       "mppx/x402/mcp": ["../src/x402/mcp.ts"],

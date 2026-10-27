@@ -221,6 +221,11 @@
       "types": "./dist/x402/mcp.d.ts",
       "default": "./dist/x402/mcp.js"
     },
+    "./x401": {
+      "src": "./src/x401/index.ts",
+      "types": "./dist/x401/index.d.ts",
+      "default": "./dist/x401/index.js"
+    },
     "./tempo": {
       "src": "./src/tempo/index.ts",
       "types": "./dist/tempo/index.d.ts",
@@ -313,6 +318,7 @@
     }
   },
   "dependencies": {
+    "@proof.com/x401-node": "0.3.3",
     "@stripe/stripe-js": "9.17.0",
     "eventsource-parser": "4.1.1",
     "ox": "catalog:",

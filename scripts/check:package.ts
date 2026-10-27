@@ -2,11 +2,12 @@ import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 const root = path.resolve(import.meta.dirname, '..')
 const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'mppx-package-'))
 const limits = {
-  fileCount: 500,
+  fileCount: 510,
   packedBytes: 1_200_000,
   unpackedBytes: 4_750_000,
 }
@@ -94,6 +95,41 @@ try {
     throw new Error(
       `Stripe package files import viem:\n${stripeViemImports.map((file) => `- ${file}`).join('\n')}`,
     )
+
+  const x401NodeImport = /["']@proof\.com\/x401-node(?:\/[^"']*)?["']/
+  const x401ModuleImport = /["'][^"']*\/x401\/[^"']*["']/
+  const x401Leaks = paths.filter((file) => {
+    if (!/^dist\/.*\.(?:js|d\.ts)$/.test(file) || /^dist\/x401\/(?:Client|Server)\./.test(file))
+      return false
+    const source = fs.readFileSync(path.join(root, file), 'utf8')
+    return (
+      (!file.startsWith('dist/cli/') && x401NodeImport.test(source)) ||
+      (!file.startsWith('dist/x401/') && file.endsWith('.js') && x401ModuleImport.test(source))
+    )
+  })
+  if (x401Leaks.length > 0)
+    throw new Error(
+      `Package files outside mppx/x401 and the CLI import @proof.com/x401-node:\n${x401Leaks.map((file) => `- ${file}`).join('\n')}`,
+    )
+
+  const withoutX401Node = `import { registerHooks } from 'node:module'
+registerHooks({
+  resolve(specifier, context, next) {
+    if (/^@proof\\.com\\/x401-node(?:\\/|$)/.test(specifier))
+      throw new Error('@proof.com/x401-node is not installed')
+    return next(specifier, context)
+  },
+})`
+  const coreEntries = ['dist/index.js', 'dist/server/index.js', 'dist/client/index.js'].map(
+    (file) => pathToFileURL(path.join(root, file)).href,
+  )
+  run(process.execPath, [
+    '--import',
+    `data:text/javascript,${encodeURIComponent(withoutX401Node)}`,
+    '--input-type=module',
+    '--eval',
+    `await Promise.all(${JSON.stringify(coreEntries)}.map((entry) => import(entry)))`,
+  ])
 
   const packageRoot = path.join(extractDirectory, 'package')
   const missingTargets = packageTargets({

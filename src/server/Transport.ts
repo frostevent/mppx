@@ -59,6 +59,8 @@ export type Transport<
     error?: Errors.PaymentError | undefined
     html?: Html.Options | undefined
     input: input
+    /** Extra response headers, such as the x401 `PROOF-REQUEST` or `PROOF-RESULT` on routes configured with `x401`. */
+    headers?: Record<string, string> | undefined
   }) => challengeOutput | Promise<challengeOutput>
   /** Attaches a receipt to a successful response. */
   respondReceipt: (options: {
@@ -142,7 +144,9 @@ export function from<
  * HTTP transport for server-side payment handling.
  *
  * - Reads credentials from the configured payment credential header
- * - Issues challenges via `WWW-Authenticate` header with 402 status
+ * - Issues challenges via `WWW-Authenticate` header with 402 status, with the x401
+ *   `PROOF-REQUEST` entry for each challenge on x401 routes
+ * - Answers x401 proof errors with 400/401 and `PROOF-REQUEST` or `PROOF-RESULT`, without a challenge
  * - Attaches receipts via `Payment-Receipt` header
  */
 export function http(options: http.Options = {}): Http {
@@ -171,7 +175,7 @@ export function http(options: http.Options = {}): Http {
     },
 
     async respondChallenge(options) {
-      const { challenge, error, input } = options
+      const { challenge, error, input, headers: extraHeaders } = options
 
       // A 403 means the payment was valid but cannot pay for this request.
       // Omit the challenge so clients do not pay again.
@@ -181,6 +185,17 @@ export function http(options: http.Options = {}): Http {
           headers: {
             'Cache-Control': 'no-store',
             'Content-Type': 'application/problem+json',
+          },
+        })
+
+      // x401 proof errors answer 400/401 without a challenge: a 402 would make the client pay again.
+      if (error instanceof Errors.ProofRequiredError || error instanceof Errors.ProofRejectedError)
+        return new Response(JSON.stringify(error.toProblemDetails(challenge.id)), {
+          status: error.status,
+          headers: {
+            'Cache-Control': 'no-store',
+            'Content-Type': 'application/problem+json',
+            ...extraHeaders,
           },
         })
 
@@ -195,6 +210,7 @@ export function http(options: http.Options = {}): Http {
 
       const headers: Record<string, string> = {
         [Constants.Headers.wwwAuthenticate]: Challenge.serialize(challenge),
+        ...extraHeaders,
         'Cache-Control': 'no-store',
       }
 

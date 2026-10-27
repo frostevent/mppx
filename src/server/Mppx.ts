@@ -16,6 +16,7 @@ import * as Mcp from '../Mcp.js'
 import * as Method from '../Method.js'
 import * as PaymentRequest from '../PaymentRequest.js'
 import type * as Receipt from '../Receipt.js'
+import type * as X401 from '../x401/Types.js'
 import * as x402_Header from '../x402/Header.js'
 import * as x402_Types from '../x402/Types.js'
 import * as z from '../zod.js'
@@ -536,6 +537,7 @@ export function create<
     selectOffers,
     secretKey = Env.get('secretKey'),
     transport = Transport.http({ requiresAuth }) as transport,
+    x401,
   } = config
   const credentialHeader = requiresAuth ? Constants.Headers.paymentAuthorization : undefined
 
@@ -551,6 +553,8 @@ export function create<
   const verifyAttestation = attestation
     ? createAttestationGuard(attestation as Attestation.VerifierMap)
     : undefined
+  if (x401 && transport.name !== 'http')
+    throw new TypeError('Mppx server x401 is only supported over the HTTP transport.')
 
   const handlers: Record<string, unknown> = {}
   const methodHandlers = new Map<Method.AnyServer, AnyMethodFn>()
@@ -599,6 +603,7 @@ export function create<
       transport: (mi.transport ?? transport) as never,
       validate: mi.validate as never,
       verify: mi.verify as never,
+      x401: x401 as X401.Verifier | undefined,
     })
     const wireKey = `${mi.name}/${mi.intent}`
     const aliasKey = mi.alias ? `${mi.name}/${mi.alias}` : undefined
@@ -1079,6 +1084,11 @@ export declare namespace create {
       : never
     /** Transport to use. @default Transport.http() */
     transport?: transport | undefined
+    /**
+     * x401 verifier from `x401.Server.verifier()` in `mppx/x401`. Routes opt in with
+     * `x401: { scope }` in their handler options.
+     */
+    x401?: transport extends Transport.Http ? X401.Verifier | undefined : never
   }
 }
 
@@ -1107,10 +1117,13 @@ function createMethodFn(parameters: createMethodFn.Parameters): createMethodFn.R
     transport,
     validate,
     verify,
+    x401,
   } = parameters
 
   return (options) => {
-    const { description, meta, scope, ...rest } = options
+    const { description, meta, scope, x401: x401Route, ...rest } = options
+    if (x401Route && !x401)
+      throw new TypeError('This route sets `x401`, but Mppx.create() was given no x401 verifier.')
     const staticMeta = Scope.merge({ meta, scope })
     const internal = {
       ...method,
@@ -1129,6 +1142,7 @@ function createMethodFn(parameters: createMethodFn.Parameters): createMethodFn.R
       _canonicalRequest: PaymentRequest.fromMethod(method, { ...defaults, ...rest }),
       _stableBinding: stableBinding as never,
       _transport: transport,
+      ...(x401Route && { _x401Headers: x401!.headers }),
     } as unknown as ConfiguredHandler['_internal']
     Object.defineProperty(internal, '_method', { value: method })
 
@@ -1198,11 +1212,23 @@ function createMethodFn(parameters: createMethodFn.Parameters): createMethodFn.R
         html?: Method.Method['html'] | undefined
         request: Record<string, unknown>
       }) => {
+        const headers =
+          !x401Route || parameters.error?.status === 403
+            ? undefined
+            : parameters.error instanceof Errors.ProofRejectedError
+              ? { [x401!.headers.PROOF_RESULT]: parameters.error.result }
+              : {
+                  [x401!.headers.PROOF_REQUEST]: await x401!.proofRequest({
+                    challenge: parameters.challenge,
+                    scope: x401Route.scope,
+                  }),
+                }
         const response = await transport.respondChallenge({
           challenge: parameters.challenge,
           input,
           ...(parameters.error && { error: parameters.error }),
           ...(parameters.html && { html: parameters.html }),
+          ...(headers && { headers }),
         })
         if (isIssuedChallengeResponse(response))
           await events.emit(
@@ -1341,6 +1367,7 @@ function createMethodFn(parameters: createMethodFn.Parameters): createMethodFn.R
           credentialForReceipt?: Credential.Credential | undefined
           envelopeForReceipt?: Method.VerifiedChallengeEnvelope | undefined
           managementResponse?: globalThis.Response | undefined
+          x401?: { value: unknown } | undefined
         } = {},
       ): MethodFn.Response => {
         const {
@@ -1353,6 +1380,7 @@ function createMethodFn(parameters: createMethodFn.Parameters): createMethodFn.R
         const result = {
           status: 200,
           challenge,
+          ...(options.x401 && { x401: options.x401.value }),
           withReceipt<response>(response?: response) {
             if (managementResponse) {
               return transport.respondReceipt({
@@ -1558,6 +1586,37 @@ function createMethodFn(parameters: createMethodFn.Parameters): createMethodFn.R
         return { challenge: response, status: 402 }
       }
 
+      // x401: the presentation must be bound to the paid challenge and is verified before the
+      // payment is verified or settled. Rejections answer 400/401, never 402.
+      let verifiedProof: { value: unknown } | undefined
+      if (x401Route) {
+        const proofResponse =
+          input instanceof globalThis.Request
+            ? input.headers.get(x401!.headers.PROOF_RESPONSE)
+            : null
+        const verification =
+          proofResponse === null
+            ? { error: new Errors.ProofRequiredError() }
+            : await x401!.verifyProof({ challenge: credential.challenge, proofResponse })
+        if ('error' in verification) {
+          await emitPaymentFailed({
+            challenge,
+            credential: parsedCredential,
+            error: verification.error,
+            request: parsedRequest,
+            submittedChallenge: credential.challenge,
+          })
+          const response = await emitChallenge({
+            challenge: credential.challenge,
+            credential: parsedCredential,
+            request: parsedRequest,
+            error: verification.error,
+          })
+          return { challenge: response, status: 402 }
+        }
+        verifiedProof = verification
+      }
+
       const envelope: Method.VerifiedChallengeEnvelope = Object.freeze({
         capturedRequest,
         challenge: credential.challenge,
@@ -1642,6 +1701,7 @@ function createMethodFn(parameters: createMethodFn.Parameters): createMethodFn.R
         credentialForReceipt: parsedCredential,
         envelopeForReceipt: envelope,
         managementResponse,
+        x401: verifiedProof,
       })
     }
 
@@ -1665,11 +1725,18 @@ function createChallengeFn(parameters: {
   const { credentialHeader, defaults, method, realm, secretKey } = parameters
 
   return async (options) => {
-    const { description, meta, scope, ...rest } = options as {
+    const {
+      description,
+      meta,
+      scope,
+      x401: _x401,
+      ...rest
+    } = options as {
       description?: string
       expires?: z.DatetimeInput
       meta?: Record<string, string>
       scope?: string
+      x401?: unknown
       [key: string]: unknown
     }
     const effectiveMeta = Scope.merge({ meta, scope })
@@ -1715,6 +1782,7 @@ declare namespace createMethodFn {
     transport: transport
     validate?: Method.ValidateFn<method>
     verify: Method.VerifyFn<method>
+    x401?: X401.Verifier | undefined
   }
 
   type ReturnType<
@@ -2576,6 +2644,11 @@ declare namespace MethodFn {
     meta?: Record<string, string> | undefined
     /** Optional route/resource scope bound via reserved challenge metadata. */
     scope?: string | undefined
+    /**
+     * Requires an x401 proof with the payment, verified by the `x401` verifier of `Mppx.create()`.
+     * `scope` is passed to the verifier's `request` for each payment challenge.
+     */
+    x401?: { scope: string } | undefined
   } & Method.WithDefaults<z.input<method['schema']['request']>, defaults>
 
   export type Response<transport extends Transport.AnyTransport = Transport.Http> =
@@ -2588,6 +2661,8 @@ declare namespace MethodFn {
         /** Canonical challenge resolved from the selected route's terms, when available. */
         challenge?: Challenge.Challenge | undefined
         withReceipt: Transport.WithReceipt<transport>
+        /** The verifier's `value` for the route's x401 proof, on routes configured with `x401`. */
+        x401?: unknown
       }
 }
 
@@ -2607,6 +2682,7 @@ type ConfiguredHandler<transport extends Transport.AnyTransport = Transport.Http
     _canonicalRequest: Record<string, unknown>
     _stableBinding?: Method.StableBindingFn<Method.Method> | undefined
     _transport: Transport.AnyTransport
+    _x401Headers?: X401.Headers | undefined
   }
 }
 
@@ -2949,6 +3025,11 @@ function composeHandlers(
       )) {
         mergedHeaders.append(header.name, value)
       }
+    }
+    for (const entry of challengeEntries) {
+      const name = entry.handler._internal._x401Headers?.PROOF_REQUEST
+      const value = name && (entry.result.challenge as Response).headers.get(name)
+      if (value) mergedHeaders.append(name, value)
     }
 
     // Collect html-enabled handlers and their challenges
