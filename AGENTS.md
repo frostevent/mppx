@@ -55,6 +55,7 @@ Run one test file by project and path, for example `pnpm exec vp test --project 
   ```
 
 - Keep pnpm overrides in `pnpm-workspace.yaml`, not `package.json`; CI fails otherwise.
+- `@proof.com/x401-node` is an optional peer dependency of `mppx/extensions/identity/x401`: it encodes and decodes the x401 headers, so the wire format stays the one the x401 specification's reference package defines. Load it with `await import()` only, so `mppx/extensions/identity` loads without it.
 - Log papercuts and friction (tooling, docs, APIs, tests, conventions) as you hit them with `pnpx frog log`. Run `pnpx frog list` first to see what is already known. Do not add global, system or internal friction.
 
 ## Architecture

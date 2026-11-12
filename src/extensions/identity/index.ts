@@ -10,5 +10,7 @@ export * as Persona from './persona/index.js'
 export * as Tap from './tap/index.js'
 /** Client and server adapters for the Web Bot Auth HTTPS-directory profile. */
 export * as WebBotAuth from './web-bot-auth/index.js'
+/** x401 proofs of identity, bound to the payment Challenge they are paid with. */
+export * as X401 from './x401/index.js'
 export * from './Constants.js'
 export type * from './Types.js'
