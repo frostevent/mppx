@@ -54,6 +54,7 @@ describe('scrub', () => {
       'X-Public': 'value',
     })
     const result = Headers.scrub(headers)
+    expect(Identity.Headers.request).toContain('proof-response')
     expect([...result.keys()]).toEqual(['x-public'])
   })
 
@@ -139,6 +140,8 @@ describe('scrubResponse', () => {
     })
     const result = Headers.scrubResponse(response)
     expect(Identity.Headers.response).toContain('identity-required')
+    expect(Identity.Headers.response).toContain('proof-request')
+    expect(Identity.Headers.response).toContain('proof-result')
     for (const name of Identity.Headers.response) expect(result.headers.has(name)).toBe(false)
     expect(result.headers.get('content-type')).toBe('text/plain')
   })
